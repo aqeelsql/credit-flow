@@ -1,0 +1,6 @@
+Flask
+flask-cors
+psycopg[binary]
+pika
+pydantic-settings
+python-dotenv
