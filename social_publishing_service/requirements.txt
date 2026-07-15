@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+asyncpg
+aio-pika
+pydantic-settings
+cryptography
+httpx
+

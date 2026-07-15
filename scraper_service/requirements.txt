@@ -5,3 +5,4 @@ pydantic-settings
 motor
 httpx
 crawl4ai
+beautifulsoup4

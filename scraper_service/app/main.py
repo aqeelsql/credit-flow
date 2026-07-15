@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
     events = ScraperEventBus(settings)
     worker = ScrapeWorker(settings, repo, events)
     events.handler = worker.handle
-    scheduler = RecurringScrapeScheduler(repo, events, settings.recurring_scan_interval_seconds)
+    scheduler = RecurringScrapeScheduler(repo, events, settings.recurring_scan_interval_seconds, settings)
     app.state.settings = settings
     app.state.mongo = mongo
     app.state.repo = repo

@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     request_timeout_seconds: float = Field(default=30.0, validation_alias=scraper_env("REQUEST_TIMEOUT_SECONDS"))
     recurring_scan_interval_seconds: int = Field(default=60, validation_alias=scraper_env("RECURRING_SCAN_INTERVAL_SECONDS"))
     crawl4ai_base_directory: str = Field(default=str(SERVICE_ROOT / ".crawl4ai-runtime"), validation_alias=scraper_env("CRAWL4AI_BASE_DIRECTORY"))
+    research_search_endpoint: str = Field(default="https://www.bing.com/news/search", validation_alias=scraper_env("RESEARCH_SEARCH_ENDPOINT"))
+    research_default_max_sources: int = Field(default=5, validation_alias=scraper_env("RESEARCH_DEFAULT_MAX_SOURCES"))
+    content_service_url: str = Field(default="http://localhost:8003", validation_alias=AliasChoices("SCRAPER_CONTENT_SERVICE_URL", "GATEWAY_CONTENT_SERVICE_URL", "CONTENT_SERVICE_URL"))
+    openrouter_api_key: str = Field(default="", repr=False, validation_alias=AliasChoices("OPENROUTER_API_KEY", "SCRAPER_OPENROUTER_API_KEY"))
+    openrouter_model: str = Field(default="", validation_alias=AliasChoices("OPENROUTER_MODEL", "SCRAPER_OPENROUTER_MODEL"))
+    openrouter_fallback_model: str = Field(default="", validation_alias=AliasChoices("OPENROUTER_FALLBACK_MODEL", "SCRAPER_OPENROUTER_FALLBACK_MODEL"))
+    openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1", validation_alias=AliasChoices("OPENROUTER_BASE_URL", "SCRAPER_OPENROUTER_BASE_URL"))
+    openrouter_timeout_seconds: float = Field(default=45.0, validation_alias=scraper_env("OPENROUTER_TIMEOUT_SECONDS"))
 
     @property
     def cors_origins(self) -> list[str]:

@@ -23,6 +23,7 @@ type DraftListResponse = {
 };
 
 const DEFAULT_PROMPT = "Write a LinkedIn post about account-scoped AI credit governance.";
+const SCRAPER_PROMPT_HANDOFF_KEY = "creditflow:scraper-prompt-handoff";
 
 export function ContentStudio() {
   const { activeAccount, accessToken, refreshAccessToken } = useAuth();
@@ -40,6 +41,7 @@ export function ContentStudio() {
   const [draftTitle, setDraftTitle] = useState("");
   const [isDraftBusy, setIsDraftBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [showSavedDrafts, setShowSavedDrafts] = useState(false);
   const stopStreamRef = useRef<(() => void) | null>(null);
   const outputRef = useRef("");
   const generateImageAlsoRef = useRef(false);
@@ -139,9 +141,14 @@ export function ContentStudio() {
     }
   };
 
-  const startGeneration = async () => {
+  const startGeneration = async (promptOverride?: string) => {
     if (!activeAccount) {
       return;
+    }
+
+    const promptToUse = promptOverride ?? prompt;
+    if (promptOverride) {
+      setPrompt(promptOverride);
     }
 
     stopStreamRef.current?.();
@@ -154,7 +161,7 @@ export function ContentStudio() {
     setIsStreaming(true);
 
     stopStreamRef.current = streamAiGeneration({
-      prompt,
+      prompt: promptToUse,
       accountId: activeAccount.id,
       accessToken,
       onToken: (token) => {
@@ -174,6 +181,29 @@ export function ContentStudio() {
       }
     });
   };
+
+  useEffect(() => {
+    if (!activeAccount || !accessToken) {
+      return;
+    }
+    const raw = window.sessionStorage.getItem(SCRAPER_PROMPT_HANDOFF_KEY);
+    if (!raw) {
+      return;
+    }
+    window.sessionStorage.removeItem(SCRAPER_PROMPT_HANDOFF_KEY);
+    try {
+      const payload = JSON.parse(raw) as { prompt?: string; autoGenerate?: boolean };
+      if (payload.prompt) {
+        setPrompt(payload.prompt);
+        setNotice("Scraped research loaded from the scraper. Generating post now.");
+        if (payload.autoGenerate) {
+          void startGeneration(payload.prompt);
+        }
+      }
+    } catch {
+      setNotice("Unable to load scraped research handoff.");
+    }
+  }, [activeAccount?.id, accessToken]);
 
   const stopGeneration = () => {
     stopStreamRef.current?.();
@@ -210,7 +240,13 @@ export function ContentStudio() {
     setImageUrl(draft.image_url ?? "");
     setImageDownloadUrl("");
     setHasImage(draftHasImage(draft));
+    setShowSavedDrafts(false);
     setNotice("Draft loaded for editing.");
+  };
+
+  const openSavedDrafts = () => {
+    setShowSavedDrafts(true);
+    void loadDrafts();
   };
 
   const readDraftError = async (response: Response, fallback: string) => {
@@ -356,43 +392,51 @@ export function ContentStudio() {
               <button className="icon-button ghost" type="button" onClick={stopGeneration} disabled={!isStreaming} aria-label="Stop generation">
                 <Square size={16} aria-hidden="true" />
               </button>
+              <button className="button secondary" type="button" onClick={openSavedDrafts} disabled={isLoadingDrafts}>
+                Saved drafts
+              </button>
             </div>
             <label className="check-row">
               <input type="checkbox" checked={generateImageAlso} onChange={(event) => setGenerateImageAlso(event.target.checked)} />
               <span>Generate image also</span>
             </label>
           </form>
-
-          <article className="panel">
-            <div className="panel-header">
-              <h2>Drafts</h2>
-              <button className="button ghost" type="button" onClick={() => void loadDrafts()} disabled={isLoadingDrafts}>Refresh</button>
-            </div>
-            <div className="draft-list">
-              {isLoadingDrafts ? <div className="draft-item"><p>Loading drafts...</p></div> : null}
-              {!isLoadingDrafts && savedDrafts.length === 0 ? <div className="draft-item"><p>No saved drafts yet.</p></div> : null}
-              {savedDrafts.map((draft) => (
-                <div className={selectedDraftId === draft.id ? "draft-item selected" : "draft-item"} key={draft.id}>
-                  <button className="draft-select" type="button" onClick={() => selectDraft(draft)}>
-                    <strong>{draft.title}</strong>
-                    <p>{draftHasImage(draft) ? "Text and image post" : "Text-only post"}</p>
-                  </button>
-                  <div className="button-row compact">
-                    <button className="button ghost" type="button" onClick={() => selectDraft(draft)}>Edit</button>
-                    <button className="button secondary" type="button" onClick={() => void approveDraft(draft.id)} disabled={isDraftBusy}>
-                      Approve
-                    </button>
-                    <button className="icon-button danger" type="button" onClick={() => void deleteDraft(draft.id)} disabled={isDraftBusy} aria-label="Delete draft">
-                      <Trash2 size={14} aria-hidden="true" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </article>
         </aside>
 
         <div className="stack">
+          {showSavedDrafts ? (
+            <article className="panel">
+              <div className="panel-header">
+                <h2>Saved drafts</h2>
+                <div className="button-row">
+                  <button className="button ghost" type="button" onClick={() => void loadDrafts()} disabled={isLoadingDrafts}>Refresh</button>
+                  <button className="button secondary" type="button" onClick={() => setShowSavedDrafts(false)}>Back to studio</button>
+                </div>
+              </div>
+              <div className="draft-list">
+                {isLoadingDrafts ? <div className="draft-item"><p>Loading drafts...</p></div> : null}
+                {!isLoadingDrafts && savedDrafts.length === 0 ? <div className="draft-item"><p>No saved drafts yet.</p></div> : null}
+                {savedDrafts.map((draft) => (
+                  <div className={selectedDraftId === draft.id ? "draft-item selected" : "draft-item"} key={draft.id}>
+                    <button className="draft-select" type="button" onClick={() => selectDraft(draft)}>
+                      <strong>{draft.title}</strong>
+                      <p>{draftHasImage(draft) ? "Text and image post" : "Text-only post"}</p>
+                    </button>
+                    <div className="button-row compact">
+                      <button className="button ghost" type="button" onClick={() => selectDraft(draft)}>Edit</button>
+                      <button className="button secondary" type="button" onClick={() => void approveDraft(draft.id)} disabled={isDraftBusy}>
+                        Approve
+                      </button>
+                      <button className="icon-button danger" type="button" onClick={() => void deleteDraft(draft.id)} disabled={isDraftBusy} aria-label="Delete draft">
+                        <Trash2 size={14} aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {notice ? <div className="notice with-top-gap">{notice}</div> : null}
+            </article>
+          ) : (
           <article className="panel">
             <div className="panel-header">
               <h2>{selectedDraftId ? "Edit draft" : "Live output"}</h2>
@@ -473,6 +517,7 @@ export function ContentStudio() {
             {hasImage && !imageUrl && !isGeneratingImage ? <div className="generated-image-preview">Image attached: this will publish as text and image.</div> : null}
             {notice ? <div className="notice">{notice}</div> : null}
           </article>
+          )}
         </div>
       </div>
     </section>

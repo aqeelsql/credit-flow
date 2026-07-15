@@ -808,6 +808,13 @@ img {
   align-items: flex-start;
 }
 
+.scraper-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
 .stack {
   display: grid;
   gap: 1rem;
@@ -1041,6 +1048,7 @@ img {
   .split-layout,
   .studio-layout,
   .calendar-layout,
+  .scraper-workspace,
   .app-layout {
     grid-template-columns: 1fr;
   }

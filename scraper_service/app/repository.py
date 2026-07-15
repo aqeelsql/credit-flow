@@ -92,6 +92,14 @@ class ScraperRepository:
             return as_jsonable(doc)
         return None
 
+    async def delete_document(self, document_id: str, account_id: str | None = None) -> bool:
+        from bson import ObjectId
+        query: dict[str, Any] = {"_id": ObjectId(document_id)}
+        if account_id:
+            query["account_id"] = account_id
+        result = await self.db[self.settings.mongodb_collection].delete_one(query)
+        return result.deleted_count > 0
+
     async def list_documents(self, account_id: str | None = None, limit: int = 25) -> list[dict]:
         query: dict[str, Any] = {}
         if account_id:
@@ -142,3 +150,95 @@ class ScraperRepository:
 
     async def mark_recurring_dispatched(self, recurring_id, interval_seconds: int) -> None:
         await self.db.recurring_scrapes.update_one({"_id": recurring_id}, {"$set": {"last_run_at": now_utc(), "next_run_at": now_utc() + timedelta(seconds=interval_seconds)}})
+
+    async def create_research_job(self, payload: dict) -> str:
+        cadence = str(payload.get("cadence") or "once")
+        next_run_at = now_utc() if cadence == "once" else now_utc() + timedelta(seconds=cadence_to_seconds(cadence))
+        doc = {**payload, "enabled": True, "created_at": now_utc(), "updated_at": now_utc(), "next_run_at": next_run_at}
+        result = await self.db.research_jobs.insert_one(as_jsonable(doc))
+        return str(result.inserted_id)
+
+    async def list_research_jobs(self, account_id: str | None, limit: int = 50) -> list[dict]:
+        query: dict[str, Any] = {}
+        if account_id:
+            query["account_id"] = account_id
+        cursor = self.db.research_jobs.find(query).sort("created_at", -1).limit(limit)
+        jobs: list[dict] = []
+        async for doc in cursor:
+            doc["id"] = str(doc.pop("_id"))
+            jobs.append(as_jsonable(doc))
+        return jobs
+
+    async def due_research_jobs(self, limit: int = 25) -> list[dict]:
+        cursor = self.db.research_jobs.find({"enabled": True, "next_run_at": {"$lte": now_utc()}}).sort("next_run_at", 1).limit(limit)
+        return [doc async for doc in cursor]
+
+    async def mark_research_job_dispatched(self, research_job_id, cadence: str) -> None:
+        if cadence == "once":
+            await self.db.research_jobs.update_one(
+                {"_id": research_job_id},
+                {"$set": {"enabled": False, "last_run_at": now_utc(), "next_run_at": None, "updated_at": now_utc()}},
+            )
+            return
+        interval = cadence_to_seconds(cadence)
+        await self.db.research_jobs.update_one(
+            {"_id": research_job_id},
+            {"$set": {"last_run_at": now_utc(), "next_run_at": now_utc() + timedelta(seconds=interval), "updated_at": now_utc()}},
+        )
+
+    async def store_research_pack(self, pack: dict[str, Any]) -> str:
+        result = await self.db.research_packs.insert_one(as_jsonable(pack))
+        return str(result.inserted_id)
+
+    async def get_research_pack(self, pack_id: str) -> dict | None:
+        from bson import ObjectId
+        doc = await self.db.research_packs.find_one({"_id": ObjectId(pack_id)})
+        if not doc:
+            return None
+        doc["id"] = str(doc.pop("_id"))
+        return as_jsonable(doc)
+
+    async def delete_research_pack(self, pack_id: str, account_id: str | None = None) -> bool:
+        from bson import ObjectId
+        query: dict[str, Any] = {"_id": ObjectId(pack_id)}
+        if account_id:
+            query["account_id"] = account_id
+        result = await self.db.research_packs.delete_one(query)
+        return result.deleted_count > 0
+
+    async def list_research_packs(self, account_id: str | None = None, limit: int = 25) -> list[dict]:
+        query: dict[str, Any] = {}
+        if account_id:
+            query["account_id"] = account_id
+        cursor = self.db.research_packs.find(query).sort("created_at", -1).limit(limit)
+        packs: list[dict] = []
+        async for doc in cursor:
+            doc["id"] = str(doc.pop("_id"))
+            packs.append(as_jsonable({
+                "id": doc["id"],
+                "topic": doc.get("topic"),
+                "job_type": doc.get("job_type"),
+                "output_type": doc.get("output_type"),
+                "status": doc.get("status"),
+                "created_at": doc.get("created_at"),
+                "source_count": len(doc.get("sources") or []),
+                "successful_source_count": len([item for item in (doc.get("sources") or []) if item.get("status") == "completed"]),
+                "summary": "\n".join(doc.get("key_points") or [])[:420],
+                "content_draft_id": doc.get("content_draft_id"),
+            }))
+        return packs
+
+    async def attach_generated_post(self, pack_id: str, post_text: str, content_draft: dict | None = None) -> None:
+        from bson import ObjectId
+        await self.db.research_packs.update_one(
+            {"_id": ObjectId(pack_id)},
+            {"$set": {"generated_post": post_text, "content_draft": content_draft, "content_draft_id": (content_draft or {}).get("id"), "updated_at": now_utc()}},
+        )
+
+
+def cadence_to_seconds(cadence: str) -> int:
+    if cadence == "weekly":
+        return 604800
+    if cadence == "monthly":
+        return 2592000
+    return 86400

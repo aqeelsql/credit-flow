@@ -20,7 +20,8 @@ Inside that one database, each service owns its own PostgreSQL schema. A service
 | AI Generation Service | `ai_generation` | `generation_jobs`, `prompt_history`, `image_generation_jobs` |
 | Content Service | `content` | `content`, `content_versions` |
 | Scheduler Service | `scheduler` | `scheduled_posts` |
-| Scraper Service | MongoDB `creditflow_scraper` | `scraped_documents`, `processed_events`, `domain_rate_limits`, `recurring_scrapes` |
+| Social Publishing Service | `social_publishing` | `social_connections`, `publish_jobs`, `post_media` |
+| Scraper Service | MongoDB `creditflow_scraper` | `scraped_documents`, `processed_events`, `domain_rate_limits`, `recurring_scrapes`, `research_jobs`, `research_packs` |
 | API Gateway | none | No PostgreSQL tables; uses Redis for rate limits, active JWT `jti`, webhook dedupe, and SSE state |
 
 Future services should follow the same pattern. For example, Billing Service should use a `billing` schema, Content Service should use a `content` schema, and Calendar Service should use a `calendar` schema.
@@ -45,6 +46,7 @@ psql $env:DATABASE_URL -f user_tenant_service/migrations/001_init.sql
 psql $env:DATABASE_URL -f ai_generation_service/migrations/001_init.sql
 psql $env:DATABASE_URL -f content_service/migrations/001_init.sql
 psql $env:DATABASE_URL -f scheduler_service/migrations/001_init.sql
+psql $env:DATABASE_URL -f social_publishing_service/migrations/001_init.sql
 ```
 
 If you previously applied the older User/Tenant migration that created an `accounts` schema, the current `user_tenant_service` migration copies existing rows into `user_tenant` safely and leaves the old schema untouched.

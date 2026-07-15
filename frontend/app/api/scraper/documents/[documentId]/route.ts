@@ -8,3 +8,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { documentId } = await params;
   return proxyScraperRequest(request, `/documents/${encodeURIComponent(documentId)}`);
 }
+
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ documentId: string }> }) {
+  const { documentId } = await params;
+  return proxyScraperRequest(request, `/documents/${encodeURIComponent(documentId)}`, { method: "DELETE" });
+}

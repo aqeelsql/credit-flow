@@ -13,6 +13,9 @@ Service 11 runs web-scraping jobs for trend and competitor data.
 - Publishes `scrape.failed` after bounded retries.
 - Configures durable RabbitMQ queues/messages plus retry queue and DLQ.
 - Supports internal recurring scrape jobs.
+- Supports topic-based research jobs where the user supplies what to research, not a fixed URL.
+- Stores recurring research drafts and generated research packs.
+- Can generate a social post from a research pack with OpenRouter and save it into Content Service drafts.
 
 ## Run locally
 
@@ -41,7 +44,27 @@ Expected env:
 MONGODB_URL=mongodb://localhost:27017/creditflow_scraper
 SCRAPER_MONGODB_DATABASE=creditflow_scraper
 SCRAPER_MONGODB_COLLECTION=scraped_documents
+SCRAPER_RESEARCH_SEARCH_ENDPOINT=https://www.bing.com/news/search
+SCRAPER_CONTENT_SERVICE_URL=http://localhost:8003
 ```
+
+MongoDB collections owned by this service:
+
+- `scraped_documents`
+- `processed_events`
+- `domain_rate_limits`
+- `recurring_scrapes`
+- `research_jobs`
+- `research_packs`
+
+## Topic research flow
+
+1. User enters a topic such as `latest stock market news for fintech founders`.
+2. Scraper discovers source URLs using the configured RSS/news search endpoint.
+3. Scraper crawls the discovered sources while respecting `robots.txt`.
+4. Scraped results are saved as a MongoDB research pack.
+5. User can click `Generate post draft with LLM` to create a social post.
+6. The generated post is saved to Content Service as a normal draft, so Content Studio, approval, and Scheduler continue to work as before.
 
 ## RabbitMQ event contract
 

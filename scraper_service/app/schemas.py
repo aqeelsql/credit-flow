@@ -33,6 +33,19 @@ class RecurringScrapeRequest(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class TopicResearchRequest(BaseModel):
+    topic: str = Field(min_length=3, max_length=500)
+    job_type: str = Field(default="topic_research", max_length=64)
+    output_type: str = Field(default="linkedin_post", max_length=64)
+    max_sources: int = Field(default=5, ge=1, le=10)
+    metadata: dict = Field(default_factory=dict)
+
+
+class ResearchJobRequest(TopicResearchRequest):
+    cadence: str = Field(default="once", pattern="^(once|daily|weekly|monthly)$")
+    auto_generate_post: bool = False
+
+
 class ScrapeDocumentResponse(BaseModel):
     id: str
     event_id: str | None = None

@@ -1,6 +1,8 @@
 import asyncio
+import re
 import os
 from datetime import datetime, timezone
+from html import unescape
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -38,7 +40,7 @@ async def crawl_url(url: str, settings: Settings) -> dict:
     try:
         from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
     except Exception as exc:
-        raise ScraperError("crawler_unavailable", "Crawl4AI is not installed or could not be imported.", 503) from exc
+        return await crawl_url_with_http_fallback(url, settings, f"Crawl4AI import failed: {exc}")
 
     try:
         browser_config = BrowserConfig(headless=True, user_agent=settings.user_agent)
@@ -65,15 +67,6 @@ async def crawl_url(url: str, settings: Settings) -> dict:
 
 async def crawl_url_with_http_fallback(url: str, settings: Settings, fallback_reason: str) -> dict:
     try:
-        from bs4 import BeautifulSoup
-    except Exception as exc:
-        raise ScraperError(
-            "crawl_runtime_error",
-            f"Crawl4AI failed before it could scrape the page: {fallback_reason}",
-            502,
-        ) from exc
-
-    try:
         async with httpx.AsyncClient(timeout=settings.request_timeout_seconds, follow_redirects=True) as client:
             response = await client.get(url, headers={"User-Agent": settings.user_agent})
         response.raise_for_status()
@@ -84,15 +77,28 @@ async def crawl_url_with_http_fallback(url: str, settings: Settings, fallback_re
             502,
         ) from exc
 
-    soup = BeautifulSoup(response.text, "html.parser")
-    for tag in soup(["script", "style", "noscript"]):
-        tag.decompose()
-    title = soup.title.get_text(" ", strip=True) if soup.title else None
-    text = soup.get_text("\n", strip=True)
-    links = [
-        {"text": anchor.get_text(" ", strip=True), "href": anchor.get("href")}
-        for anchor in soup.find_all("a", href=True)[:200]
-    ]
+    title = None
+    links = []
+    try:
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        for tag in soup(["script", "style", "noscript"]):
+            tag.decompose()
+        title = soup.title.get_text(" ", strip=True) if soup.title else None
+        text = soup.get_text("\n", strip=True)
+        links = [
+            {"text": anchor.get_text(" ", strip=True), "href": anchor.get("href")}
+            for anchor in soup.find_all("a", href=True)[:200]
+        ]
+        cleaned_html = str(soup.body or soup)[:200000]
+    except Exception:
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", response.text, flags=re.IGNORECASE | re.DOTALL)
+        title = unescape(re.sub(r"\s+", " ", title_match.group(1)).strip()) if title_match else None
+        without_noise = re.sub(r"<script[^>]*>.*?</script>|<style[^>]*>.*?</style>|<noscript[^>]*>.*?</noscript>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
+        text = unescape(re.sub(r"<[^>]+>", "\n", without_noise))
+        text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+        cleaned_html = without_noise[:200000]
     metadata = {
         "http_status": response.status_code,
         "content_type": response.headers.get("content-type"),
@@ -103,13 +109,13 @@ async def crawl_url_with_http_fallback(url: str, settings: Settings, fallback_re
             "success": True,
             "title": title,
             "markdown": text,
-            "cleaned_html": str(soup.body or soup)[:200000],
+            "cleaned_html": cleaned_html,
             "extracted_content": text,
             "links": links,
             "media": [],
             "metadata": metadata,
             "error_message": None,
-            "crawler_fallback": "httpx+beautifulsoup",
+            "crawler_fallback": "httpx+html-parser",
         }
     )
 

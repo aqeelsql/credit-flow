@@ -53,7 +53,9 @@ async function consumeGenerationStream(
     }
     const response = await fetch(url, { headers, credentials: "include", signal });
     if (!response.ok || !response.body) {
-      throw new Error(`Generation request failed (${response.status}).`);
+      const body = (await response.json().catch(() => null)) as { error?: string | { message?: string } } | null;
+      const error = typeof body?.error === "string" ? body.error : body?.error?.message;
+      throw new Error(error || `Generation request failed (${response.status}).`);
     }
 
     const reader = response.body.getReader();

@@ -25,6 +25,9 @@ class MongoState:
         await self.db.processed_events.create_index("event_id", unique=True)
         await self.db.domain_rate_limits.create_index("domain", unique=True)
         await self.db.recurring_scrapes.create_index("next_run_at")
+        await self.db.research_jobs.create_index([("account_id", 1), ("created_at", -1)])
+        await self.db.research_jobs.create_index("next_run_at")
+        await self.db.research_packs.create_index([("account_id", 1), ("created_at", -1)])
 
     async def close(self) -> None:
         if self.client is not None:
