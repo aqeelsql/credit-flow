@@ -1,0 +1,252 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-creditflow}
+      POSTGRES_USER: ${POSTGRES_USER:-creditflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-creditflow-change-me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-creditflow} -d ${POSTGRES_DB:-creditflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-creditflow}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-creditflow-change-me}
+    ports:
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  auth_service:
+    build: ./auth_service
+    restart: unless-stopped
+    env_file: .env
+    environment: &common_env
+      DATABASE_URL: postgresql://${POSTGRES_USER:-creditflow}:${POSTGRES_PASSWORD:-creditflow-change-me}@postgres:5432/${POSTGRES_DB:-creditflow}
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-creditflow}:${RABBITMQ_DEFAULT_PASS:-creditflow-change-me}@rabbitmq:5672/
+      RABBITMQ_EXCHANGE: creditflow.events
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+    depends_on: &core_depends
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "8001:8000"
+
+  content_service:
+    build: ./content_service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *common_env
+      CONTENT_UPLOAD_DIR: /app/uploads
+    volumes:
+      - content_uploads:/app/uploads
+    depends_on: *core_depends
+    ports:
+      - "8003:8003"
+
+  user_tenant_service:
+    build: ./user_tenant_service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *common_env
+    depends_on: *core_depends
+    ports:
+      - "8002:8002"
+
+  credits_service:
+    build: ./credits_service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *common_env
+    depends_on: *core_depends
+    ports:
+      - "8007:8007"
+
+  scheduler_api:
+    build: ./scheduler_service
+    restart: unless-stopped
+    env_file: .env
+    environment: &scheduler_env
+      <<: *common_env
+      SCHEDULER_CELERY_BROKER_URL: redis://redis:6379/2
+      SCHEDULER_CELERY_RESULT_BACKEND: redis://redis:6379/3
+      SCHEDULER_LOCK_REDIS_URL: redis://redis:6379/4
+    depends_on: *core_depends
+    ports:
+      - "8004:8004"
+
+  scheduler_worker:
+    build: ./scheduler_service
+    restart: unless-stopped
+    env_file: .env
+    environment: *scheduler_env
+    command: ["celery", "-A", "app.celery_app:celery_app", "worker", "--loglevel=INFO", "--pool=solo"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  scheduler_beat:
+    build: ./scheduler_service
+    restart: unless-stopped
+    env_file: .env
+    environment: *scheduler_env
+    command: ["celery", "-A", "app.celery_app:celery_app", "beat", "--loglevel=INFO"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  ai_generation_service:
+    build: ./ai_generation_service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *common_env
+      REDIS_URL: redis://redis:6379/0
+    depends_on: *core_depends
+    ports:
+      - "8010:8010"
+
+  scraper_service:
+    build: ./scraper_service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *common_env
+      MONGODB_URL: mongodb://mongodb:27017/creditflow_scraper
+      SCRAPER_MONGODB_DATABASE: creditflow_scraper
+      SCRAPER_CONTENT_SERVICE_URL: http://content_service:8003
+      SCRAPER_CRAWL4AI_BASE_DIRECTORY: /app/.crawl4ai-runtime
+    volumes:
+      - scraper_runtime:/app/.crawl4ai-runtime
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "8012:8012"
+
+  social_publishing_service:
+    build: ./social_publishing_service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *common_env
+      SOCIAL_PUBLISHING_CONTENT_SERVICE_URL: http://content_service:8003
+      LINKEDIN_REDIRECT_URI: ${LINKEDIN_REDIRECT_URI:-http://localhost:8005/linkedin/callback}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
+    depends_on: *core_depends
+    ports:
+      - "8005:8005"
+
+  api_gateway:
+    build: ./api_gateway
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *common_env
+      GATEWAY_AUTH_SERVICE_URL: http://auth_service:8000
+      USER_TENANT_SERVICE_URL: http://user_tenant_service:8002
+      GATEWAY_CONTENT_SERVICE_URL: http://content_service:8003
+      GATEWAY_CALENDAR_SERVICE_URL: http://scheduler_api:8004
+      GATEWAY_LINKEDIN_SERVICE_URL: http://social_publishing_service:8005
+      GATEWAY_CREDITS_SERVICE_URL: http://credits_service:8007
+      GATEWAY_AI_GENERATION_SERVICE_URL: http://ai_generation_service:8010
+      GATEWAY_SCRAPER_SERVICE_URL: http://scraper_service:8012
+    depends_on:
+      auth_service:
+        condition: service_started
+      content_service:
+        condition: service_started
+      user_tenant_service:
+        condition: service_started
+      credits_service:
+        condition: service_started
+      scheduler_api:
+        condition: service_started
+      social_publishing_service:
+        condition: service_started
+      ai_generation_service:
+        condition: service_started
+      scraper_service:
+        condition: service_started
+    ports:
+      - "8000:8080"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+        NEXT_PUBLIC_USE_LOCAL_AUTH: ${NEXT_PUBLIC_USE_LOCAL_AUTH:-false}
+        NEXT_PUBLIC_USE_MOCK_AI: ${NEXT_PUBLIC_USE_MOCK_AI:-false}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      NEXT_PUBLIC_USE_LOCAL_AUTH: ${NEXT_PUBLIC_USE_LOCAL_AUTH:-false}
+      NEXT_PUBLIC_USE_MOCK_AI: ${NEXT_PUBLIC_USE_MOCK_AI:-false}
+      SCRAPER_SERVICE_URL: http://scraper_service:8012
+      LINKEDIN_SERVICE_URL: http://social_publishing_service:8005
+    depends_on:
+      api_gateway:
+        condition: service_started
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  mongo_data:
+  content_uploads:
+  scraper_runtime:
