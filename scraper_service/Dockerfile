@@ -1,9 +1,8 @@
 FROM python:3.12-slim
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-RUN crawl4ai-setup || true
+COPY requirements.docker.txt .
+RUN pip install --no-cache-dir -r requirements.docker.txt
 COPY app ./app
 
 EXPOSE 8012

@@ -13,6 +13,20 @@ from app.errors import ScraperError
 from app.repository import ScraperRepository, as_jsonable
 
 
+NOISE_TEXT_PATTERNS = (
+    "accept cookies",
+    "privacy policy",
+    "terms of use",
+    "all rights reserved",
+    "subscribe",
+    "sign up",
+    "advertisement",
+    "enable javascript",
+    "cookie policy",
+    "newsletter",
+)
+
+
 def domain_for(url: str) -> str:
     parsed = urlparse(url)
     return parsed.netloc.lower()
@@ -83,10 +97,13 @@ async def crawl_url_with_http_fallback(url: str, settings: Settings, fallback_re
         from bs4 import BeautifulSoup
 
         soup = BeautifulSoup(response.text, "html.parser")
-        for tag in soup(["script", "style", "noscript"]):
+        for tag in soup(["script", "style", "noscript", "svg", "form", "iframe"]):
             tag.decompose()
+        for selector in ("nav", "footer", "header", "aside", "[role='navigation']", "[aria-label='breadcrumb']"):
+            for tag in soup.select(selector):
+                tag.decompose()
         title = soup.title.get_text(" ", strip=True) if soup.title else None
-        text = soup.get_text("\n", strip=True)
+        text = extract_best_text_from_soup(soup)
         links = [
             {"text": anchor.get_text(" ", strip=True), "href": anchor.get("href")}
             for anchor in soup.find_all("a", href=True)[:200]
@@ -118,6 +135,50 @@ async def crawl_url_with_http_fallback(url: str, settings: Settings, fallback_re
             "crawler_fallback": "httpx+html-parser",
         }
     )
+
+
+def extract_best_text_from_soup(soup) -> str:
+    candidates = []
+    for selector in ("article", "main", "[role='main']", ".article", ".post", ".entry-content", ".content", "body"):
+        for node in soup.select(selector):
+            text = clean_extracted_lines(node.get_text("\n", strip=True))
+            score = score_extracted_text(text)
+            if score > 0:
+                candidates.append((score, text))
+    if not candidates:
+        return clean_extracted_lines(soup.get_text("\n", strip=True))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+def clean_extracted_lines(text: str) -> str:
+    lines: list[str] = []
+    seen: set[str] = set()
+    for line in text.replace("\r", "\n").split("\n"):
+        clean = " ".join(line.split()).strip()
+        if len(clean) < 28:
+            continue
+        lowered = clean.lower()
+        if lowered in seen:
+            continue
+        if any(pattern in lowered for pattern in NOISE_TEXT_PATTERNS):
+            continue
+        # Drop menu/link-list style lines with many separators and little prose.
+        if clean.count("|") >= 3 or clean.count("›") >= 3:
+            continue
+        seen.add(lowered)
+        lines.append(clean)
+    return "\n".join(lines)[:50000]
+
+
+def score_extracted_text(text: str) -> float:
+    words = text.split()
+    if not words:
+        return 0
+    sentence_marks = text.count(".") + text.count("?") + text.count("!")
+    linkish = len([word for word in words if word.startswith(("http://", "https://", "www."))])
+    avg_word_len = sum(len(word) for word in words) / max(len(words), 1)
+    return len(words) + sentence_marks * 15 + avg_word_len * 3 - linkish * 20
 
 
 class ScrapeRunner:
