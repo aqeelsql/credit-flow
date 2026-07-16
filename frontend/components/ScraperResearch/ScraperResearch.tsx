@@ -62,6 +62,7 @@ type ResearchPackSummary = {
 
 type ResearchPack = ResearchPackSummary & {
   key_points?: string[];
+  research_brief?: string | null;
   sources?: ResearchSource[];
   generated_post?: string;
   content_draft?: { id?: string; title?: string; status?: string } | null;
@@ -113,7 +114,7 @@ function stringifyValue(value: unknown) {
 
 function previewText(document: ScrapeDocument | null) {
   if (!document?.raw) return "Select a scraped document to preview extracted data.";
-  return stringifyValue(document.raw.markdown || document.raw.extracted_content || document.raw.cleaned_html) || "No textual content was extracted.";
+  return stringifyValue(document.raw.extracted_content || document.raw.markdown || document.raw.cleaned_html) || "No textual content was extracted.";
 }
 
 function compactUrlGenerationBrief(document: ScrapeDocument) {
@@ -149,6 +150,9 @@ function clipText(value: string, maxLength: number) {
 }
 
 function researchGenerationBrief(pack: ResearchPack) {
+  if (pack.research_brief) {
+    return clipText(pack.research_brief, 6000);
+  }
   const points = (pack.key_points ?? []).map((point) => `- ${clipText(point, 360)}`).join("\n");
   const completed = (pack.sources ?? []).filter((source) => source.status === "completed").slice(0, 4);
   const sourceBriefs = completed.map((source, index) => {
