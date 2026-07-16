@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, BarChart3, CalendarClock, Coins, RadioTower, Search, ShieldCheck } from "lucide-react";
+import { ArrowRight, BarChart3, CalendarClock, Coins, PenLine, RadioTower, Search, ShieldCheck, Sparkles } from "lucide-react";
 
 const features = [
   {
@@ -62,16 +62,65 @@ export default function HomePage() {
           </div>
         </nav>
 
-        <div className="hero-copy">
-          <div className="hero-tags" aria-label="CreditFlow modes">
-            <span>Studio</span>
-            <span>Credits</span>
-            <span>Scheduler</span>
+        <div className="hero-main">
+          <div className="hero-copy">
+            <div className="hero-tags" aria-label="CreditFlow modes">
+              <span>Studio</span>
+              <span>Credits</span>
+              <span>Scheduler</span>
+            </div>
+            <h1>
+              Build Your Content Engine, <em>One Flow</em> at a Time
+            </h1>
+            <p>Multi-tenant AI generation, credit control, and social publishing in one account-scoped workspace.</p>
+            <div className="hero-actions">
+              <Link className="button primary" href="/signup">
+                Start building
+                <ArrowRight size={16} aria-hidden="true" />
+              </Link>
+              <Link className="button secondary" href="/login">
+                Open workspace
+              </Link>
+            </div>
           </div>
-          <h1>
-            Build Your Content Engine, <em>One Flow</em> at a Time
-          </h1>
-          <p>Multi-tenant AI generation, credit control, and social publishing in one account-scoped workspace.</p>
+
+          <div className="hero-product-stack" aria-label="CreditFlow workflow preview">
+            <div className="workflow-card workflow-card-primary">
+              <div className="workflow-card-header">
+                <span className="workflow-icon"><Sparkles size={18} aria-hidden="true" /></span>
+                <span>AI Content Studio</span>
+              </div>
+              <strong>Generate a LinkedIn-ready post from research, drafts, or a fresh prompt.</strong>
+              <div className="workflow-progress" aria-hidden="true"><span /></div>
+            </div>
+            <div className="workflow-grid">
+              <div className="workflow-card compact">
+                <span className="workflow-icon"><Search size={16} aria-hidden="true" /></span>
+                <strong>Research</strong>
+                <p>Topic or URL scraper</p>
+              </div>
+              <div className="workflow-card compact">
+                <span className="workflow-icon"><PenLine size={16} aria-hidden="true" /></span>
+                <strong>Draft</strong>
+                <p>Versioned content</p>
+              </div>
+              <div className="workflow-card compact">
+                <span className="workflow-icon"><CalendarClock size={16} aria-hidden="true" /></span>
+                <strong>Schedule</strong>
+                <p>Calendar handoff</p>
+              </div>
+              <div className="workflow-card compact">
+                <span className="workflow-icon"><RadioTower size={16} aria-hidden="true" /></span>
+                <strong>Publish</strong>
+                <p>LinkedIn pipeline</p>
+              </div>
+            </div>
+            <div className="workflow-metric-row">
+              <div><span>Credits tracked</span><strong>12.4k</strong></div>
+              <div><span>Drafts saved</span><strong>286</strong></div>
+              <div><span>Posts queued</span><strong>42</strong></div>
+            </div>
+          </div>
         </div>
 
         <div className="hero-search-panel" aria-label="Find your CreditFlow workspace">
