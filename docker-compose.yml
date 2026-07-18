@@ -140,7 +140,7 @@
     depends_on: *core_depends
     ports:
       - "8013:8013"
-
+      
   scheduler_api:
     build: ./scheduler_service
     restart: unless-stopped
