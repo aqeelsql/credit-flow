@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     content_service_url: str = Field(default="http://localhost:8003", validation_alias=gateway_env("CONTENT_SERVICE_URL"))
     calendar_service_url: str = Field(default="http://localhost:8004", validation_alias=gateway_env("CALENDAR_SERVICE_URL"))
     linkedin_service_url: str = Field(default="http://localhost:8005", validation_alias=gateway_env("LINKEDIN_SERVICE_URL"))
-    billing_service_url: str = "http://localhost:8006"
+    billing_service_url: str = Field(default="http://localhost:8006", validation_alias=gateway_env("BILLING_SERVICE_URL"))
     credits_service_url: str = Field(default="http://localhost:8007", validation_alias=gateway_env("CREDITS_SERVICE_URL"))
     admin_service_url: str = Field(default="http://localhost:8008", validation_alias=gateway_env("ADMIN_SERVICE_URL"))
     usage_service_url: str = "http://localhost:8009"
