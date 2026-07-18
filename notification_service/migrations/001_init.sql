@@ -1,0 +1,2 @@
+-- Notification Service schema is bootstrapped by SQLAlchemy on startup.
+-- Required tables: notification_log, processed_events.

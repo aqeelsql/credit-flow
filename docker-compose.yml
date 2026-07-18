@@ -106,6 +106,18 @@ services:
     ports:
       - "8007:8007"
 
+  notification_service:
+    build: ./notification_service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *common_env
+      NOTIFICATION_RABBITMQ_EXCHANGES: creditflow.events,billing_events
+      NOTIFICATION_PUBLISH_EXCHANGE: creditflow.events
+    depends_on: *core_depends
+    ports:
+      - "8013:8013"
+
   scheduler_api:
     build: ./scheduler_service
     restart: unless-stopped
