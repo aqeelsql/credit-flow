@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+import re
 
 from app.crawler import ScrapeRunner
 from app.errors import ScraperError
@@ -75,6 +76,7 @@ class ResearchRunner:
             "sources": source_results,
             "document_ids": document_ids,
             "key_points": key_points,
+            "research_brief": build_research_brief(request.topic, source_results, key_points),
             "metadata": request.metadata,
             "created_at": datetime.now(timezone.utc),
         }
@@ -89,12 +91,57 @@ def build_key_points(sources: list[dict]) -> list[str]:
         if source.get("status") != "completed":
             continue
         text = source.get("content") or extract_research_text(source.get("raw") or {}) or source.get("snippet")
-        clean = " ".join(text.split())
-        if clean:
-            points.append(f"{source.get('title')}: {clean[:420]}")
-        if len(points) >= 6:
+        sentences = important_sentences(text)
+        if sentences:
+            points.append(f"{source.get('title')}: {' '.join(sentences[:2])[:520]}")
+        if len(points) >= 8:
             break
     return points
+
+
+def important_sentences(text: str) -> list[str]:
+    clean = " ".join(str(text or "").split())
+    if not clean:
+        return []
+    parts = re.split(r"(?<=[.!?])\s+", clean)
+    scored: list[tuple[int, str]] = []
+    keywords = ("market", "growth", "decline", "rate", "report", "company", "stock", "revenue", "profit", "loss", "investor", "customer", "trend", "launch", "announced", "data", "forecast", "demand", "risk", "%", "$", "million", "billion")
+    for sentence in parts:
+        sentence = sentence.strip()
+        words = sentence.split()
+        if len(words) < 10 or len(words) > 55:
+            continue
+        lowered = sentence.lower()
+        score = sum(3 for keyword in keywords if keyword in lowered)
+        score += sum(2 for token in words if any(char.isdigit() for char in token))
+        score += 1 if any(token.istitle() for token in words[1:]) else 0
+        scored.append((score, sentence))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    selected: list[str] = []
+    seen: set[str] = set()
+    for _, sentence in scored:
+        key = sentence.lower()[:140]
+        if key in seen:
+            continue
+        seen.add(key)
+        selected.append(sentence)
+        if len(selected) >= 3:
+            break
+    return selected or parts[:2]
+
+
+def build_research_brief(topic: str, sources: list[dict], key_points: list[str]) -> str:
+    completed = [source for source in sources if source.get("status") == "completed"]
+    lines = [f"Topic: {topic}", f"Usable sources: {len(completed)}"]
+    if key_points:
+        lines.append("Key observations:")
+        lines.extend(f"- {point}" for point in key_points[:8])
+    if completed:
+        lines.append("Source notes:")
+        for source in completed[:6]:
+            excerpt = clean_research_text(source.get("content") or source.get("excerpt") or "")[:700]
+            lines.append(f"- {source.get('title') or source.get('url')} ({source.get('url')}): {excerpt}")
+    return "\n".join(lines)[:6000]
 
 
 def extract_research_text(raw: dict) -> str:
@@ -109,12 +156,14 @@ def clean_research_text(text: str) -> str:
     seen: set[str] = set()
     for line in text.replace("\r", "\n").split("\n"):
         clean = " ".join(line.split()).strip()
-        if len(clean) < 35:
+        if len(clean) < 30:
             continue
         lowered = clean.lower()
         if lowered in seen:
             continue
-        if any(skip in lowered for skip in ("accept cookies", "sign up", "subscribe", "advertisement", "all rights reserved", "privacy policy", "terms of use")):
+        if any(skip in lowered for skip in ("accept cookies", "sign up", "subscribe", "advertisement", "all rights reserved", "privacy policy", "terms of use", "enable javascript", "cookie policy", "newsletter")):
+            continue
+        if clean.count("|") >= 3 or clean.count("›") >= 3:
             continue
         seen.add(lowered)
         lines.append(clean)
@@ -124,7 +173,8 @@ def clean_research_text(text: str) -> str:
 
 def is_meaningful_research_text(text: str) -> bool:
     words = text.split()
-    if len(words) < 80:
+    if len(words) < 55:
         return False
     linkish_words = len([word for word in words if word.startswith(("http://", "https://", "www."))])
-    return linkish_words / max(len(words), 1) < 0.08
+    punctuation = text.count(".") + text.count("?") + text.count("!")
+    return linkish_words / max(len(words), 1) < 0.08 and punctuation >= 2

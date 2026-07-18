@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+aio-pika
+pydantic-settings
+motor
+httpx
+beautifulsoup4
+

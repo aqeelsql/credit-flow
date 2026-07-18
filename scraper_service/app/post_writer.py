@@ -4,18 +4,48 @@ from app.config import Settings
 from app.errors import ScraperError
 
 
+def clean_for_prompt(value: object, max_chars: int) -> str:
+    text = str(value or "")
+    lines: list[str] = []
+    seen: set[str] = set()
+    for line in text.replace("\r", "\n").split("\n"):
+        clean = " ".join(line.split()).strip()
+        if len(clean) < 30:
+            continue
+        lowered = clean.lower()
+        if lowered in seen:
+            continue
+        if any(skip in lowered for skip in ("accept cookies", "privacy policy", "terms of use", "all rights reserved", "subscribe", "sign up", "advertisement", "enable javascript")):
+            continue
+        seen.add(lowered)
+        lines.append(clean)
+    cleaned = "\n".join(lines) or " ".join(text.split())
+    return cleaned[:max_chars]
+
+
 def build_social_prompt(pack: dict, output_type: str) -> str:
     sources = pack.get("sources") or []
     source_lines = []
-    for index, source in enumerate(sources[:8], start=1):
+    completed_sources = [source for source in sources if source.get("status") == "completed"] or sources
+    for index, source in enumerate(completed_sources[:6], start=1):
         raw = source.get("raw") or {}
-        text = raw.get("markdown") or raw.get("extracted_content") or source.get("snippet") or ""
-        source_lines.append(f"Source {index}: {source.get('title') or source.get('url')}\nURL: {source.get('url')}\nExtract: {str(text)[:1400]}")
+        text = source.get("content") or source.get("excerpt") or raw.get("markdown") or raw.get("extracted_content") or source.get("snippet") or ""
+        source_lines.append(f"Source {index}: {source.get('title') or source.get('url')}\nURL: {source.get('url')}\nExtracted facts/data:\n{clean_for_prompt(text, 1800)}")
+    key_points = "\n".join(f"- {clean_for_prompt(point, 420)}" for point in (pack.get("key_points") or [])[:8])
+    research_brief = clean_for_prompt(pack.get("research_brief") or "", 1800)
+    if not source_lines and not key_points and not research_brief:
+        raise ScraperError("research_pack_empty", "This research pack has no usable extracted text for post generation.", 422)
     return f"""Write a polished {output_type.replace('_', ' ')} for a professional social media audience.
 
 Research topic: {pack.get('topic')}
 
-Use only the research below. Do not invent facts. Keep it clear, useful, and credible. Include 3-5 concise paragraphs and a short call to action. Do not include raw citations, but make the post sound grounded in current research.
+Use only the research below. Do not invent facts. If the research is thin, say what is observable instead of pretending certainty. Keep it clear, useful, and credible. Include 3-5 concise paragraphs and a short call to action. Do not paste raw URLs in the post.
+
+Research brief:
+{research_brief or 'No separate brief available.'}
+
+Key facts:
+{key_points or 'Use the source extracts below.'}
 
 Research:
 {chr(10).join(source_lines)}
