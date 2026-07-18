@@ -106,6 +106,29 @@ services:
     ports:
       - "8007:8007"
 
+  billing_service:
+    build: ./billing_service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *common_env
+      BILLING_SERVICE_URL: http://billing_service:8006
+      BILLING_RABBITMQ_EXCHANGE: billing_events
+    depends_on: *core_depends
+    ports:
+      - "8006:8006"
+
+  usage_service:
+    build: ./usage_service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *common_env
+      USAGE_SERVICE_URL: http://usage_service:8009
+    depends_on: *core_depends
+    ports:
+      - "8009:8009"
+
   scheduler_api:
     build: ./scheduler_service
     restart: unless-stopped
@@ -152,7 +175,17 @@ services:
     environment:
       <<: *common_env
       REDIS_URL: redis://redis:6379/0
-    depends_on: *core_depends
+      USAGE_SERVICE_URL: http://usage_service:8009
+      AI_GENERATION_QUOTA_BACKEND: usage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      usage_service:
+        condition: service_started
     ports:
       - "8010:8010"
 
@@ -200,7 +233,9 @@ services:
       GATEWAY_CONTENT_SERVICE_URL: http://content_service:8003
       GATEWAY_CALENDAR_SERVICE_URL: http://scheduler_api:8004
       GATEWAY_LINKEDIN_SERVICE_URL: http://social_publishing_service:8005
+      BILLING_SERVICE_URL: http://billing_service:8006
       GATEWAY_CREDITS_SERVICE_URL: http://credits_service:8007
+      USAGE_SERVICE_URL: http://usage_service:8009
       GATEWAY_AI_GENERATION_SERVICE_URL: http://ai_generation_service:8010
       GATEWAY_SCRAPER_SERVICE_URL: http://scraper_service:8012
     depends_on:
@@ -212,9 +247,13 @@ services:
         condition: service_started
       credits_service:
         condition: service_started
+      usage_service:
+        condition: service_started
       scheduler_api:
         condition: service_started
       social_publishing_service:
+        condition: service_started
+      billing_service:
         condition: service_started
       ai_generation_service:
         condition: service_started
