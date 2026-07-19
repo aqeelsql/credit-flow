@@ -1,2 +1,11 @@
 # Local secrets and machine-specific settings
 .env
+
+# Generated dependencies/build artifacts
+node_modules/
+.next/
+dist/
+build/
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
