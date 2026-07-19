@@ -235,7 +235,7 @@ class AccountRepository:
             raise AccountError("invite_create_failed", "Unable to create invite.", 500)
         return dict(row), code
 
-    async def accept_invite(self, code: str, user_id: str) -> dict[str, Any]:
+    async def accept_invite(self, code: str, user_id: str, user_email: str | None) -> dict[str, Any]:
         invite = await self.conn.fetchrow(
             """
             SELECT id::text AS id, account_id::text AS account_id, email, role::text AS role, status::text AS status, expires_at
@@ -249,6 +249,10 @@ class AccountRepository:
         )
         if invite is None or invite["status"] != InviteStatus.PENDING.value:
             raise AccountError("invalid_invite", "Invite code is invalid.", 400)
+        if not user_email:
+            raise AccountError("invite_email_required", "Authenticated user email is required to accept an invite.", 403)
+        if invite["email"].lower() != user_email.lower():
+            raise AccountError("invite_email_mismatch", "This invite was sent to a different email address.", 403)
         expires_at = invite["expires_at"]
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
@@ -267,7 +271,13 @@ class AccountRepository:
                 INSERT INTO account_members (id, account_id, user_id, email, role, status, created_at, updated_at)
                 VALUES ($1, $2, $3, $4, $5::account_role, $6::member_status, $7, $7)
                 ON CONFLICT (account_id, user_id)
-                DO UPDATE SET role = EXCLUDED.role, status = EXCLUDED.status, updated_at = EXCLUDED.updated_at
+                DO UPDATE SET
+                    role = CASE
+                        WHEN account_members.role = 'Owner'::account_role THEN account_members.role
+                        ELSE EXCLUDED.role
+                    END,
+                    status = EXCLUDED.status,
+                    updated_at = EXCLUDED.updated_at
                 RETURNING id::text AS member_id, email, role::text AS role
                 """,
                 uuid.uuid4(),
