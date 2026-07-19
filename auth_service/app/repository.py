@@ -68,7 +68,7 @@ class AuthRepository:
                 """,
                 user_id,
                 email.lower(),
-                UserStatus.ACTIVE.value,
+                UserStatus.PENDING_VERIFICATION.value,
                 now,
             )
             await self.conn.execute(

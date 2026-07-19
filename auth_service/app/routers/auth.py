@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import asyncio
 import logging
+import uuid
 
 from fastapi import APIRouter, Body, Depends, Request, Response
 
@@ -77,18 +78,29 @@ def _delete_refresh_cookie(response: Response, settings: Settings) -> None:
     response.delete_cookie(settings.refresh_cookie_name, path="/")
 
 
-async def _publish_event(publisher: EventPublisher, routing_key: str, payload: dict, settings: Settings) -> None:
+async def _publish_event(
+    publisher: EventPublisher,
+    routing_key: str,
+    payload: dict,
+    settings: Settings,
+    *,
+    required: bool = False,
+) -> None:
     is_local = settings.environment.lower() in {"local", "dev", "development", "test"}
     try:
-        if is_local:
+        if is_local and not required:
             await asyncio.wait_for(publisher.publish(routing_key, payload), timeout=1.0)
         else:
             await publisher.publish(routing_key, payload)
     except (AuthError, TimeoutError, OSError) as exc:
-        if is_local:
+        if is_local and not required:
             logging.warning("Skipped %s publish in local development: %s", routing_key, exc)
             return
-        raise
+        raise AuthError(
+            "event_publish_failed",
+            f"Unable to queue required {routing_key} notification. Ensure RabbitMQ and the notification service are running.",
+            503,
+        ) from exc
 
 
 async def _issue_session(
@@ -133,27 +145,46 @@ async def signup(
     publisher: EventPublisher = Depends(publisher_dep),
 ) -> SignupResponse:
     password_hash = hash_password(payload.password, settings.bcrypt_rounds)
+    verification_token = random_token_urlsafe(48)
+    created = True
     async with db.transaction() as conn:
         repo = AuthRepository(conn)
-        user = await repo.create_user_with_credential(payload.email, password_hash)
+        existing = await repo.get_user_by_email(payload.email)
+        if existing is not None:
+            if existing["status"] == UserStatus.ACTIVE.value:
+                raise AuthError("email_already_registered", "An account already exists for this email. Please log in instead.", 409)
+            if existing["status"] != UserStatus.PENDING_VERIFICATION.value:
+                raise AuthError("account_disabled", "This account cannot sign up again. Contact support.", 403)
+            user = existing
+            created = False
+        else:
+            user = await repo.create_user_with_credential(payload.email, password_hash)
+        await repo.create_email_verification_token(user["id"], sha256_hex(verification_token), expires_in(settings.email_verification_ttl_seconds))
 
     account = await create_individual_account(settings, user["id"], user["email"], payload.account_name)
+    verification_url = f"{settings.frontend_base_url.rstrip('/')}/verify-email?token={verification_token}"
 
     await _publish_event(
         publisher,
         "user.registered",
         {
+            "event_id": f"user.registered:{uuid.uuid4()}",
             "user_id": user["id"],
             "email": user["email"],
             "account_id": account.get("id"),
+            "account_name": account.get("name") or payload.account_name,
+            "verification_token": verification_token,
+            "verification_url": verification_url,
+            "verification_expires_in": settings.email_verification_ttl_seconds,
         },
         settings,
+        required=True,
     )
     return SignupResponse(
-        status="active",
+        status="pending_verification",
         user_id=user["id"],
         account_id=account.get("id"),
-        message="Account created. You can log in now.",
+        message="Account created. Check your email to verify your account before logging in." if created else "Verification email sent again. Check your inbox before logging in.",
     )
 
 
@@ -187,9 +218,7 @@ async def login(
     if user is None or not user.get("password_hash") or not verify_password(payload.password, user["password_hash"]):
         raise AuthError("invalid_credentials", "Email or password is incorrect.", 401)
     if user["status"] == UserStatus.PENDING_VERIFICATION.value:
-        async with db.transaction() as conn:
-            repo = AuthRepository(conn)
-            user = await repo.activate_user(user["id"])
+        raise AuthError("email_not_verified", "Please verify your email before logging in.", 403)
     if user["status"] != UserStatus.ACTIVE.value:
         raise AuthError("account_disabled", "This account cannot sign in.", 403)
 
