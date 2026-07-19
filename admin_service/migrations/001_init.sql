@@ -1,0 +1,2 @@
+-- Admin / Ops Service schema is bootstrapped by SQLAlchemy on startup.
+-- Required table: audit_log.
