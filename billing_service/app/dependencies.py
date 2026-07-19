@@ -28,6 +28,12 @@ def require_owner(principal: Principal) -> str:
     return principal.account_id
 
 
+def require_superadmin(principal: Principal) -> str:
+    if principal.role != "SuperAdmin":
+        raise BillingError("superadmin_required", "SuperAdmin role is required.", 403)
+    return principal.user_id
+
+
 def require_internal(x_internal_token: str | None = Header(default=None), settings: Settings = Depends(settings_dep)) -> None:
     if settings.internal_service_token and x_internal_token != settings.internal_service_token:
         raise BillingError("forbidden", "Internal service token is invalid.", 403)
