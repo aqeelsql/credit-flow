@@ -13,6 +13,7 @@ from app.email_client import EmailClient
 from app.events import NotificationEventBus
 from app.repository import NotificationRepository
 from app.templates import build_email, recipient_for_event
+from app.errors import NotificationError
 
 
 class NotificationProcessor:
@@ -71,12 +72,16 @@ class NotificationProcessor:
             repo = NotificationRepository(conn)
             await repo.log_attempt(event_id=event_id, event_type=routing_key, notification_type=email["notification_type"], channel="email", recipient=recipient, subject=email["subject"], status="failed", attempt=next_retry, error=error, metadata=payload)
 
-        if retry_count < self.settings.max_retries:
+        is_permanent = isinstance(exc, NotificationError) and exc.status_code < 500
+        if not is_permanent and retry_count < self.settings.max_retries:
             logging.warning("Notification event %s failed; retry %s/%s", event_id, next_retry, self.settings.max_retries)
             await self.event_bus.publish_retry(routing_key, payload, next_retry)
             return
 
-        logging.error("Notification event %s exhausted retries", event_id)
+        if is_permanent:
+            logging.error("Notification event %s failed permanently: %s", event_id, error)
+        else:
+            logging.error("Notification event %s exhausted retries", event_id)
         await self.event_bus.publish_dlq(routing_key, payload, error, retry_count)
         async with self.database.transaction() as conn:
             repo = NotificationRepository(conn)
