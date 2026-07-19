@@ -3,9 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { MailCheck } from "lucide-react";
-import { apiFetch } from "@/lib/api-client";
-
-const USE_LOCAL_AUTH = process.env.NEXT_PUBLIC_USE_LOCAL_AUTH !== "false";
 
 export default function VerifyEmailPage() {
   const [status, setStatus] = useState<"checking" | "success" | "failure">("checking");
@@ -13,22 +10,17 @@ export default function VerifyEmailPage() {
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get("token");
 
-    if (!token && USE_LOCAL_AUTH) {
-      setStatus("success");
-      return;
-    }
-
     if (!token) {
       setStatus("failure");
       return;
     }
 
-    apiFetch("/auth/verify-email", {
+    fetch("/api/auth/verify-email", {
       method: "POST",
-      body: JSON.stringify({ token }),
-      skipAuth: true
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token })
     })
-      .then(() => setStatus("success"))
+      .then((response) => setStatus(response.ok ? "success" : "failure"))
       .catch(() => setStatus("failure"));
   }, []);
 
@@ -45,7 +37,7 @@ export default function VerifyEmailPage() {
         {status === "checking" ? <p>Activating your account...</p> : null}
         {status === "success" ? (
           <div className="success-note">
-            Email verification UI is ready.{" "}
+            Your email is verified. You can now log in.{" "}
             <Link className="link" href="/login">
               Continue to login
             </Link>

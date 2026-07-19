@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
-const BILLING_SERVICE_URL = process.env.BILLING_SERVICE_URL ?? "http://localhost:8006";
+const ADMIN_SERVICE_URL = process.env.ADMIN_SERVICE_URL ?? "http://localhost:8008";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ function decodeJwtPayload(token: string | null): Record<string, unknown> {
   }
 }
 
-function forwardHeaders(request: NextRequest, hasBody: boolean, directBilling: boolean) {
+function forwardHeaders(request: NextRequest, hasBody: boolean, directAdmin: boolean) {
   const headers = new Headers();
   const authorization = request.headers.get("authorization");
   const cookie = request.headers.get("cookie");
@@ -29,23 +29,23 @@ function forwardHeaders(request: NextRequest, hasBody: boolean, directBilling: b
   if (authorization) headers.set("Authorization", authorization);
   if (cookie) headers.set("Cookie", cookie);
 
-  if (directBilling) {
-    headers.set("x-user-id", String(claims.sub ?? claims.user_id ?? "local-user"));
-    headers.set("x-account-id", String(claims.account_id ?? claims.accountId ?? "dev-account"));
-    headers.set("x-role", String(claims.role ?? "Owner"));
+  if (directAdmin) {
+    headers.set("x-user-id", String(claims.sub ?? claims.user_id ?? "local-admin"));
+    headers.set("x-account-id", String(claims.account_id ?? claims.accountId ?? "platform"));
+    headers.set("x-role", String(claims.role ?? "SuperAdmin"));
     if (claims.email) headers.set("x-user-email", String(claims.email));
   }
 
   return headers;
 }
 
-async function proxyBilling(request: NextRequest, pathParts: string[] = []) {
-  const directBilling = !API_BASE_URL;
-  const baseUrl = directBilling ? BILLING_SERVICE_URL : API_BASE_URL;
-  const pathPrefix = directBilling ? "" : "/billing";
+async function proxyAdmin(request: NextRequest, pathParts: string[] = []) {
+  const directAdmin = !API_BASE_URL;
+  const baseUrl = directAdmin ? ADMIN_SERVICE_URL : API_BASE_URL;
+  const pathPrefix = directAdmin ? "/admin" : "/admin";
 
   if (!baseUrl) {
-    return Response.json({ error: "Gateway API URL is not configured." }, { status: 500 });
+    return Response.json({ error: "Admin API URL is not configured." }, { status: 500 });
   }
 
   const upstreamUrl = new URL(`${pathPrefix}/${pathParts.join("/")}`, baseUrl);
@@ -57,7 +57,7 @@ async function proxyBilling(request: NextRequest, pathParts: string[] = []) {
   try {
     const upstream = await fetch(upstreamUrl, {
       method,
-      headers: forwardHeaders(request, hasBody, directBilling),
+      headers: forwardHeaders(request, hasBody, directAdmin),
       body: hasBody ? await request.text() : undefined,
       cache: "no-store"
     });
@@ -68,7 +68,7 @@ async function proxyBilling(request: NextRequest, pathParts: string[] = []) {
     });
   } catch (error) {
     return Response.json(
-      { error: error instanceof Error ? error.message : "Unable to reach the billing gateway." },
+      { error: error instanceof Error ? error.message : "Unable to reach the Admin/Ops service." },
       { status: 502 }
     );
   }
@@ -76,25 +76,10 @@ async function proxyBilling(request: NextRequest, pathParts: string[] = []) {
 
 export async function GET(request: NextRequest, context: { params: Promise<{ path?: string[] }> }) {
   const { path = [] } = await context.params;
-  return proxyBilling(request, path);
-}
-
-export async function POST(request: NextRequest, context: { params: Promise<{ path?: string[] }> }) {
-  const { path = [] } = await context.params;
-  return proxyBilling(request, path);
-}
-
-export async function PUT(request: NextRequest, context: { params: Promise<{ path?: string[] }> }) {
-  const { path = [] } = await context.params;
-  return proxyBilling(request, path);
-}
-
-export async function PATCH(request: NextRequest, context: { params: Promise<{ path?: string[] }> }) {
-  const { path = [] } = await context.params;
-  return proxyBilling(request, path);
+  return proxyAdmin(request, path);
 }
 
 export async function DELETE(request: NextRequest, context: { params: Promise<{ path?: string[] }> }) {
   const { path = [] } = await context.params;
-  return proxyBilling(request, path);
+  return proxyAdmin(request, path);
 }

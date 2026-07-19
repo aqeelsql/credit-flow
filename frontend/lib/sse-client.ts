@@ -7,8 +7,6 @@ type StreamGenerationArgs = {
   onError: (message: string) => void;
 };
 
-const USE_MOCK_AI = process.env.NEXT_PUBLIC_USE_MOCK_AI !== "false";
-
 export function streamAiGeneration({
   prompt,
   accountId,
@@ -17,10 +15,6 @@ export function streamAiGeneration({
   onDone,
   onError
 }: StreamGenerationArgs): () => void {
-  if (USE_MOCK_AI) {
-    return mockTokenStream(prompt, onToken, onDone);
-  }
-
   const params = new URLSearchParams({
     account_id: accountId,
     prompt
@@ -99,22 +93,4 @@ async function consumeGenerationStream(
       onError(error instanceof Error ? error.message : "The generation stream closed unexpectedly.");
     }
   }
-}
-
-function mockTokenStream(prompt: string, onToken: (token: string) => void, onDone: () => void): () => void {
-  const cleanPrompt = prompt.trim() || "a practical launch post for a credit-based AI publishing workflow";
-  const text = `Drafting for: ${cleanPrompt}\n\nCreditFlow helps teams turn a raw idea into a scheduled LinkedIn post without losing account-level control. Start with the audience pain, show the measurable credit cost, then close with a direct publishing cue. Keep the voice crisp, useful, and confident.`;
-  const tokens = text.split(/(\s+)/);
-  let index = 0;
-
-  const interval = window.setInterval(() => {
-    onToken(tokens[index] ?? "");
-    index += 1;
-    if (index >= tokens.length) {
-      window.clearInterval(interval);
-      onDone();
-    }
-  }, 34);
-
-  return () => window.clearInterval(interval);
 }
