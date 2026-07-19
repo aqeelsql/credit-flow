@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from typing import Any
 
 from app.config import Settings
@@ -35,11 +36,20 @@ def build_email(event_type: str, payload: dict[str, Any], settings: Settings) ->
     account_name = str(payload.get("account_name") or payload.get("workspace_name") or "CreditFlow")
     if event_type == "user.registered":
         url = _verify_url(payload, settings)
+        safe_url = escape(url, quote=True)
+        safe_account = escape(account_name, quote=True)
         return {
             "notification_type": "signup_verification",
             "subject": "Verify your CreditFlow account",
             "text": f"Welcome to CreditFlow. Verify your account here: {url}",
-            "html": f"<h2>Welcome to CreditFlow</h2><p>Verify your account to start using your workspace.</p><p><a href='{url}'>Verify account</a></p>",
+            "html": (
+                "<div style='font-family:Inter,Arial,sans-serif;line-height:1.6;color:#0f172a'>"
+                "<h2 style='margin:0 0 12px'>Verify your CreditFlow account</h2>"
+                f"<p>Welcome to {safe_account}. Confirm your email address to activate your workspace and sign in.</p>"
+                f"<p><a href='{safe_url}' style='display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700'>Verify account</a></p>"
+                f"<p style='font-size:13px;color:#64748b'>If the button does not work, copy and paste this link into your browser:<br>{safe_url}</p>"
+                "</div>"
+            ),
         }
     if event_type == "invoice.paid":
         amount = payload.get("amount_paid") or payload.get("amount") or ""
@@ -49,9 +59,28 @@ def build_email(event_type: str, payload: dict[str, Any], settings: Settings) ->
     if event_type == "payment.failed":
         reason = payload.get("reason") or "payment failed"
         return {"notification_type": "payment_failed", "subject": "CreditFlow payment failed", "text": f"A payment failed for {account_name}. Reason: {reason}", "html": f"<h2>Payment failed</h2><p>Workspace: {account_name}</p><p>Reason: {reason}</p>"}
-    if event_type in {"member.joined", "team.invite.created"}:
-        invite_url = payload.get("invite_url") or payload.get("accept_url") or f"{settings.frontend_base_url.rstrip('/')}/login"
-        return {"notification_type": "workspace_invite", "subject": f"You have been invited to {account_name}", "text": f"Open your CreditFlow workspace invitation: {invite_url}", "html": f"<h2>Workspace invitation</h2><p>You have been invited to {account_name}.</p><p><a href='{invite_url}'>Open invitation</a></p>"}
+    if event_type in {"member.invited", "team.invite.created"}:
+        code = str(payload.get("code") or payload.get("invite_code") or payload.get("token") or "")
+        invite_url = str(payload.get("invite_url") or payload.get("accept_url") or f"{settings.frontend_base_url.rstrip('/')}/signup?invite={code}")
+        safe_invite_url = escape(invite_url, quote=True)
+        safe_code = escape(code, quote=True)
+        safe_account = escape(account_name, quote=True)
+        return {
+            "notification_type": "workspace_invite",
+            "subject": f"You have been invited to {account_name}",
+            "text": f"You have been invited to {account_name}. Open: {invite_url}. Invite code: {code}",
+            "html": (
+                "<div style='font-family:Inter,Arial,sans-serif;line-height:1.6;color:#0f172a'>"
+                f"<h2>You have been invited to {safe_account}</h2>"
+                "<p>Create or log in to your CreditFlow account, then accept this invite.</p>"
+                f"<p><a href='{safe_invite_url}' style='display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700'>Accept invite</a></p>"
+                f"<p style='font-size:13px;color:#64748b'>Invite code: <strong>{safe_code}</strong></p>"
+                "</div>"
+            ),
+        }
+    if event_type == "member.joined":
+        safe_account = escape(account_name, quote=True)
+        return {"notification_type": "member_joined", "subject": f"A member joined {account_name}", "text": f"A member joined {account_name}.", "html": f"<h2>Member joined</h2><p>A member joined {safe_account}.</p>"}
     if event_type == "post.published":
         post_url = payload.get("post_url") or payload.get("linkedin_post_url") or payload.get("post_id") or ""
         return {"notification_type": "post_published", "subject": "Your scheduled post was published", "text": f"Your scheduled post was published. {post_url}", "html": f"<h2>Post published</h2><p>Your scheduled post was published.</p><p>{post_url}</p>"}
