@@ -27,6 +27,7 @@ class Settings(BaseSettings):
 
     rabbitmq_url: str = "amqp://guest:guest@localhost/"
     rabbitmq_exchange: str = "creditflow.events"
+    rabbitmq_exchanges: str = Field(default="creditflow.events,billing_events", validation_alias=credits_env("RABBITMQ_EXCHANGES"))
     rabbitmq_queue: str = Field(default="creditflow.credits_service", validation_alias=credits_env("RABBITMQ_QUEUE"))
 
     billing_service_url: str = "http://localhost:8006"
@@ -42,6 +43,13 @@ class Settings(BaseSettings):
     @property
     def is_local(self) -> bool:
         return self.environment.lower() in {"local", "dev", "development", "test"}
+
+    @property
+    def exchanges(self) -> list[str]:
+        values = [exchange.strip() for exchange in self.rabbitmq_exchanges.split(",") if exchange.strip()]
+        if self.rabbitmq_exchange and self.rabbitmq_exchange not in values:
+            values.insert(0, self.rabbitmq_exchange)
+        return values
 
 
 @lru_cache
