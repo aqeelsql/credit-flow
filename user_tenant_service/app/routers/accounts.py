@@ -168,7 +168,8 @@ async def list_team(
     settings: Settings = Depends(settings_dep),
     db: Database = Depends(database_dep),
 ) -> list[TeamMemberResponse]:
-    await require_account_manager_membership(account_id, principal, db, settings)
+    if principal.role != "SuperAdmin":
+        await require_account_manager_membership(account_id, principal, db, settings)
     async with db.acquire() as conn:
         repo = AccountRepository(conn, settings)
         rows = await repo.list_team_members(account_id)
@@ -250,7 +251,7 @@ async def accept_invite(
 ) -> AccountResponse:
     async with db.transaction() as conn:
         repo = AccountRepository(conn, settings)
-        row = await repo.accept_invite(payload.code, principal.user_id)
+        row = await repo.accept_invite(payload.code, principal.user_id, principal.email)
     await publish_or_log(
         event_bus,
         "member.joined",
