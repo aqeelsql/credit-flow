@@ -46,6 +46,33 @@ class BillingService:
         session = await self.stripe.create_payment_method_setup_session(customer_id=sub["stripe_customer_id"], account_id=account_id)
         return {"status": "setup_created", "checkout_url": session.url, "session_id": session.id}
 
+    async def create_credit_checkout_session(self, repo: BillingRepository, account_id: str, package_key: str, selected_credits: int, email: str | None = None) -> dict[str, Any]:
+        package = await repo.get_active_credit_package(package_key)
+        if package is None:
+            raise BillingError("credit_package_not_found", "Credit package was not found.", 404)
+        base_credits = int(package["credits"])
+        base_price_cents = int(package["price_cents"])
+        unit_price_cents = base_price_cents / base_credits
+        checkout_price_cents = max(1, round(selected_credits * unit_price_cents))
+        sub = await self.ensure_customer(repo, account_id, email, metadata={"credit_purchase_enabled": True})
+        session = await self.stripe.create_credit_checkout_session(
+            customer_id=sub["stripe_customer_id"],
+            account_id=account_id,
+            package_key=str(package["key"]),
+            credits=selected_credits,
+            price_cents=checkout_price_cents,
+            currency=str(package.get("currency") or "usd"),
+        )
+        return {
+            "status": "checkout_created",
+            "checkout_url": session.url,
+            "session_id": session.id,
+            "package_key": str(package["key"]),
+            "credits": selected_credits,
+            "price_cents": checkout_price_cents,
+            "currency": str(package.get("currency") or "usd"),
+        }
+
     async def get_payment_method(self, repo: BillingRepository, account_id: str) -> dict[str, Any]:
         sub = await repo.get_subscription(account_id)
         if not sub or not sub.get("stripe_customer_id"):
@@ -69,6 +96,24 @@ class BillingService:
                 if obj.get("setup_intent"):
                     await self.stripe.set_default_payment_method_from_setup_intent(str(obj.get("setup_intent")))
                 await repo.add_outbox_event("subscription.updated", {"event_id": event_id, "account_id": account_id, "status": "payment_method_saved", "stripe_customer_id": obj.get("customer")})
+            elif metadata.get("purpose") == "credit_purchase":
+                credits = int(metadata.get("credits") or 0)
+                amount_paid = int(obj.get("amount_total") or 0)
+                currency = str(obj.get("currency") or "usd")
+                await repo.add_outbox_event(
+                    "invoice.paid",
+                    {
+                        "event_id": event_id,
+                        "account_id": account_id,
+                        "amount_paid": amount_paid,
+                        "currency": currency,
+                        "credits": credits,
+                        "package_key": metadata.get("package_key"),
+                        "stripe_checkout_session_id": obj.get("id"),
+                        "payment_intent_id": obj.get("payment_intent"),
+                        "purpose": "credit_purchase",
+                    },
+                )
             else:
                 plan = str(metadata.get("plan") or "pro")
                 await repo.update_subscription_state(account_id=account_id, customer_id=obj.get("customer"), subscription_id=obj.get("subscription"), plan=plan, status="active", metadata=metadata)
