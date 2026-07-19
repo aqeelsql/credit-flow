@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     starter_credits: int = Field(default=4000, validation_alias=billing_env("STARTER_CREDITS"))
     pro_credits: int = Field(default=25000, validation_alias=billing_env("PRO_CREDITS"))
     team_credits: int = Field(default=90000, validation_alias=billing_env("TEAM_CREDITS"))
+    credit_packages: str = Field(default="starter:5000:1900,pro:25000:7900,scale:100000:24900", validation_alias=billing_env("CREDIT_PACKAGES"))
 
     @property
     def cors_origins(self) -> list[str]:
@@ -56,6 +57,20 @@ class Settings(BaseSettings):
     @property
     def plan_credits(self) -> dict[str, int]:
         return {"free": self.free_credits, "starter": self.starter_credits, "pro": self.pro_credits, "team": self.team_credits}
+
+    @property
+    def parsed_credit_packages(self) -> list[dict[str, int | str]]:
+        packages: list[dict[str, int | str]] = []
+        for item in self.credit_packages.split(","):
+            parts = [part.strip() for part in item.split(":")]
+            if len(parts) != 3 or not all(parts):
+                continue
+            key, credits, price_cents = parts
+            try:
+                packages.append({"key": key, "credits": int(credits), "price_cents": int(price_cents), "currency": "usd"})
+            except ValueError:
+                continue
+        return packages
 
 
 @lru_cache

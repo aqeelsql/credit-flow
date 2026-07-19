@@ -16,6 +16,7 @@ EVENT_TOPICS = [
     "user.registered",
     "invoice.paid",
     "payment.failed",
+    "member.invited",
     "member.joined",
     "team.invite.created",
     "post.published",

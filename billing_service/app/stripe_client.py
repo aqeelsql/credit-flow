@@ -53,6 +53,29 @@ class StripeClient:
             setup_intent_data={"metadata": {"account_id": account_id, "purpose": "save_payment_method"}},
         )
 
+    async def create_credit_checkout_session(self, *, customer_id: str, account_id: str, package_key: str, credits: int, price_cents: int, currency: str = "usd") -> stripe.checkout.Session:
+        self.ensure_configured()
+        metadata = {"account_id": account_id, "purpose": "credit_purchase", "package_key": package_key, "credits": str(credits)}
+        return stripe.checkout.Session.create(
+            mode="payment",
+            customer=customer_id,
+            success_url=f"{self.settings.frontend_base_url}/billing?checkout=success&type=credits",
+            cancel_url=f"{self.settings.frontend_base_url}/credits?checkout=cancelled",
+            client_reference_id=account_id,
+            metadata=metadata,
+            payment_intent_data={"metadata": metadata},
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": currency,
+                        "unit_amount": price_cents,
+                        "product_data": {"name": f"CreditFlow credits - {credits:,}"},
+                    },
+                    "quantity": 1,
+                }
+            ],
+        )
+
     async def get_default_payment_method(self, customer_id: str) -> dict | None:
         self.ensure_configured()
         customer = stripe.Customer.retrieve(customer_id, expand=["invoice_settings.default_payment_method"])

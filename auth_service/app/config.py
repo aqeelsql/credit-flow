@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     refresh_token_ttl_seconds: int = Field(default=30 * 24 * 60 * 60, validation_alias=auth_env("REFRESH_TOKEN_TTL_SECONDS"))
 
     email_verification_ttl_seconds: int = Field(default=24 * 60 * 60, validation_alias=auth_env("EMAIL_VERIFICATION_TTL_SECONDS"))
+    frontend_base_url: str = Field(default="http://localhost:3000", validation_alias=auth_env("FRONTEND_BASE_URL"))
     password_reset_otp_ttl_seconds: int = Field(default=10 * 60, validation_alias=auth_env("PASSWORD_RESET_OTP_TTL_SECONDS"))
     password_reset_otp_length: int = Field(default=6, validation_alias=auth_env("PASSWORD_RESET_OTP_LENGTH"))
 

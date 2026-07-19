@@ -13,6 +13,14 @@ def notification_env(name: str) -> AliasChoices:
     return AliasChoices(f"NOTIFICATION_{name}", name)
 
 
+def email_from_env() -> AliasChoices:
+    return AliasChoices("EMAIL_FROM", "NOTIFICATION_RESEND_FROM_EMAIL", "RESEND_FROM_EMAIL")
+
+
+def frontend_url_env() -> AliasChoices:
+    return AliasChoices("FRONTEND_URL", "NOTIFICATION_FRONTEND_BASE_URL", "FRONTEND_BASE_URL")
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ENV_FILES, env_file_encoding="utf-8", extra="ignore", populate_by_name=True)
 
@@ -33,10 +41,11 @@ class Settings(BaseSettings):
     retry_delay_ms: int = Field(default=30000, validation_alias=notification_env("RETRY_DELAY_MS"))
     max_retries: int = Field(default=3, validation_alias=notification_env("MAX_RETRIES"))
 
-    resend_api_key: str = Field(default="", repr=False)
-    resend_from_email: str = Field(default="CreditFlow <onboarding@resend.dev>", validation_alias=notification_env("RESEND_FROM_EMAIL"))
+    resend_api_key: str = Field(default="", repr=False, validation_alias=AliasChoices("RESEND_API_KEY", "NOTIFICATION_RESEND_API_KEY"))
+    resend_from_email: str = Field(default="CreditFlow <onboarding@resend.dev>", validation_alias=email_from_env())
+    resend_test_recipient: str = Field(default="", validation_alias=notification_env("RESEND_TEST_RECIPIENT"))
     resend_api_url: str = Field(default="https://api.resend.com/emails", validation_alias=notification_env("RESEND_API_URL"))
-    frontend_base_url: str = Field(default="http://localhost:3000", validation_alias=notification_env("FRONTEND_BASE_URL"))
+    frontend_base_url: str = Field(default="http://localhost:3000", validation_alias=frontend_url_env())
     support_email: str = Field(default="support@creditflow.local", validation_alias=notification_env("SUPPORT_EMAIL"))
     ops_email: str = Field(default="ops@creditflow.local", validation_alias=notification_env("OPS_EMAIL"))
     slack_webhook_url: str = Field(default="", repr=False, validation_alias=notification_env("SLACK_WEBHOOK_URL"))

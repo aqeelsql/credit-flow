@@ -106,6 +106,20 @@
     ports:
       - "8007:8007"
 
+  admin_service:
+    build: ./admin_service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *common_env
+      ADMIN_CREDITS_SERVICE_URL: http://credits_service:8007
+      ADMIN_USAGE_SERVICE_URL: http://usage_service:8009
+      ADMIN_USER_TENANT_SERVICE_URL: http://user_tenant_service:8002
+      ADMIN_RABBITMQ_EXCHANGES: creditflow.events,billing_events
+    depends_on: *core_depends
+    ports:
+      - "8008:8008"
+
   billing_service:
     build: ./billing_service
     restart: unless-stopped
@@ -247,6 +261,7 @@
       GATEWAY_LINKEDIN_SERVICE_URL: http://social_publishing_service:8005
       BILLING_SERVICE_URL: http://billing_service:8006
       GATEWAY_CREDITS_SERVICE_URL: http://credits_service:8007
+      GATEWAY_ADMIN_SERVICE_URL: http://admin_service:8008
       USAGE_SERVICE_URL: http://usage_service:8009
       GATEWAY_AI_GENERATION_SERVICE_URL: http://ai_generation_service:8010
       GATEWAY_SCRAPER_SERVICE_URL: http://scraper_service:8012
@@ -258,6 +273,8 @@
       user_tenant_service:
         condition: service_started
       credits_service:
+        condition: service_started
+      admin_service:
         condition: service_started
       usage_service:
         condition: service_started

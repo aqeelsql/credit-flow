@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 import asyncpg
+from app.errors import BillingError
 
 
 def _json(value: dict[str, Any] | None) -> str:
@@ -153,4 +154,61 @@ class BillingRepository:
 
     async def confirm_marketplace_escrow(self, account_id: str, listing_id: str, payment_intent_id: str | None) -> dict[str, Any]:
         row = await self.conn.fetchrow("INSERT INTO marketplace_escrow (account_id, listing_id, payment_intent_id, status, created_at) VALUES ($1, $2, $3, 'confirmed', now()) ON CONFLICT (account_id, listing_id) DO UPDATE SET payment_intent_id = COALESCE(EXCLUDED.payment_intent_id, marketplace_escrow.payment_intent_id) RETURNING id::text AS id, account_id, listing_id, payment_intent_id, status", account_id, listing_id, payment_intent_id)
+        return dict(row)
+
+    async def list_credit_packages(self, include_inactive: bool = False) -> list[dict[str, Any]]:
+        if include_inactive:
+            rows = await self.conn.fetch("""
+                SELECT id::text AS id, key, credits, price_cents, currency, active, created_by_user_id, created_at, updated_at
+                FROM credit_packages
+                ORDER BY active DESC, created_at DESC
+            """)
+        else:
+            rows = await self.conn.fetch("""
+                SELECT id::text AS id, key, credits, price_cents, currency, active, created_by_user_id, created_at, updated_at
+                FROM credit_packages
+                WHERE active = true
+                ORDER BY created_at DESC
+            """)
+        return [dict(row) for row in rows]
+
+    async def get_active_credit_package(self, package_key: str) -> dict[str, Any] | None:
+        row = await self.conn.fetchrow("""
+            SELECT id::text AS id, key, credits, price_cents, currency, active, created_by_user_id, created_at, updated_at
+            FROM credit_packages
+            WHERE key = $1 AND active = true
+        """, package_key)
+        return dict(row) if row else None
+
+    async def create_credit_package(self, *, key: str, credits: int, price_cents: int, currency: str, created_by_user_id: str | None) -> dict[str, Any]:
+        try:
+            row = await self.conn.fetchrow("""
+                INSERT INTO credit_packages (key, credits, price_cents, currency, active, created_by_user_id, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, true, $5, now(), now())
+                RETURNING id::text AS id, key, credits, price_cents, currency, active, created_by_user_id, created_at, updated_at
+            """, key, credits, price_cents, currency.lower(), created_by_user_id)
+        except asyncpg.UniqueViolationError as exc:
+            raise BillingError("credit_package_exists", "A credit package with this key already exists.", 409) from exc
+        return dict(row)
+
+    async def update_credit_package(self, package_id: str, *, credits: int, price_cents: int, currency: str, active: bool) -> dict[str, Any]:
+        row = await self.conn.fetchrow("""
+            UPDATE credit_packages
+            SET credits = $2, price_cents = $3, currency = $4, active = $5, updated_at = now()
+            WHERE id = $1::uuid
+            RETURNING id::text AS id, key, credits, price_cents, currency, active, created_by_user_id, created_at, updated_at
+        """, package_id, credits, price_cents, currency.lower(), active)
+        if row is None:
+            raise BillingError("credit_package_not_found", "Credit package was not found.", 404)
+        return dict(row)
+
+    async def deactivate_credit_package(self, package_id: str) -> dict[str, Any]:
+        row = await self.conn.fetchrow("""
+            UPDATE credit_packages
+            SET active = false, updated_at = now()
+            WHERE id = $1::uuid
+            RETURNING id::text AS id, key, credits, price_cents, currency, active, created_by_user_id, created_at, updated_at
+        """, package_id)
+        if row is None:
+            raise BillingError("credit_package_not_found", "Credit package was not found.", 404)
         return dict(row)

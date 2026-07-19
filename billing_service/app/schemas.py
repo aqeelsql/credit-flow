@@ -22,6 +22,44 @@ class CheckoutSessionResponse(BaseModel):
     status: str
 
 
+class CreditPackageResponse(BaseModel):
+    id: str | None = None
+    key: str
+    credits: int
+    price_cents: int
+    currency: str = "usd"
+    active: bool = True
+
+
+class CreateCreditPackageRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=80, pattern="^[a-z0-9][a-z0-9_-]*$")
+    credits: int = Field(gt=0)
+    price_cents: int = Field(gt=0)
+    currency: str = Field(default="usd", min_length=3, max_length=8)
+
+
+class UpdateCreditPackageRequest(BaseModel):
+    credits: int = Field(gt=0)
+    price_cents: int = Field(gt=0)
+    currency: str = Field(default="usd", min_length=3, max_length=8)
+    active: bool = True
+
+
+class CreditCheckoutRequest(BaseModel):
+    package_key: str = Field(min_length=1, max_length=80)
+    credits: int = Field(gt=0)
+
+
+class CreditCheckoutResponse(BaseModel):
+    checkout_url: str
+    session_id: str
+    package_key: str
+    credits: int
+    price_cents: int
+    currency: str
+    status: str
+
+
 class PaymentMethodSetupResponse(BaseModel):
     checkout_url: str
     session_id: str

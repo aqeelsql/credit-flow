@@ -1,137 +1,142 @@
 "use client";
 
-import { useState } from "react";
-import { CircleDollarSign, Plus, ShoppingCart } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { CreditCard, Loader2, PackageCheck } from "lucide-react";
 import { RouteGuard } from "@/components/RouteGuard/RouteGuard";
-import { marketplaceListings, ownListings } from "@/lib/mock-data";
-import type { CreditListing } from "@/lib/types";
+import { useAuth } from "@/lib/auth-context";
+
+type Balance = { balance: number };
+type CreditPackage = { key: string; credits: number; price_cents: number; currency: string };
+type CreditCheckout = { checkout_url?: string | null; package_key: string; status: string };
+
+async function api<T>(path: string, token: string | null, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const response = await fetch(path, { ...init, headers, cache: "no-store" });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = typeof body?.message === "string" ? body.message : typeof body?.error === "string" ? body.error : response.statusText;
+    throw new Error(message || "Request failed.");
+  }
+  return body as T;
+}
+
+function money(priceCents: number, currency: string) {
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "USD" }).format(priceCents / 100);
+}
 
 export default function CreditsPage() {
   return (
     <RouteGuard allowedRoles={["Owner"]}>
-      <CreditsMarketplace />
+      <CreditsPurchase />
     </RouteGuard>
   );
 }
 
-function CreditsMarketplace() {
-  const [listings, setListings] = useState<CreditListing[]>(ownListings);
-  const [credits, setCredits] = useState(2000);
-  const [price, setPrice] = useState("21.00");
+function CreditsPurchase() {
+  const { accessToken, activeAccount } = useAuth();
+  const [packages, setPackages] = useState<CreditPackage[]>([]);
+  const [selectedCredits, setSelectedCredits] = useState<Record<string, number>>({});
+  const [balance, setBalance] = useState<number | null>(null);
+  const [busyPackage, setBusyPackage] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
-  const addListing = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setListings((current) => [
-      ...current,
-      {
-        id: `own_${Date.now()}`,
-        seller: "Active account",
-        credits,
-        price: `$${price}`,
-        status: "Listed"
-      }
-    ]);
-    setNotice("Credits listed in marketplace.");
+  const loadCredits = useCallback(async () => {
+    if (!accessToken) return;
+    setError(null);
+    try {
+      const [balanceResponse, packageResponse] = await Promise.all([
+        api<Balance>("/api/credits/balance", accessToken),
+        api<CreditPackage[]>("/api/billing/credits/packages", accessToken)
+      ]);
+      setBalance(balanceResponse.balance);
+      setPackages(packageResponse);
+      setSelectedCredits((current) => {
+        const next = { ...current };
+        for (const item of packageResponse) {
+          if (!next[item.key]) next[item.key] = item.credits;
+        }
+        return next;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load credit packages.");
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") === "cancelled") setNotice("Credit checkout was cancelled. No payment was made.");
+    void loadCredits();
+  }, [loadCredits]);
+
+  const unitPriceCents = (item: CreditPackage) => item.price_cents / item.credits;
+  const selectedAmount = (item: CreditPackage) => Math.max(1, Math.floor(selectedCredits[item.key] || item.credits));
+  const estimatedPrice = (item: CreditPackage) => Math.max(1, Math.round(selectedAmount(item) * unitPriceCents(item)));
+
+  const buyPackage = async (item: CreditPackage) => {
+    setError(null);
+    setNotice("");
+    setBusyPackage(item.key);
+    try {
+      const credits = selectedAmount(item);
+      const checkout = await api<CreditCheckout>("/api/billing/checkout/credits", accessToken, {
+        method: "POST",
+        body: JSON.stringify({ package_key: item.key, credits })
+      });
+      if (!checkout.checkout_url) throw new Error("Billing did not return a Stripe checkout URL.");
+      window.location.href = checkout.checkout_url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to start credit checkout.");
+      setBusyPackage(null);
+    }
   };
 
   return (
     <section className="page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Credits and marketplace</h1>
-          <p className="page-subtitle">Buy credits, list surplus credits, and purchase from other accounts.</p>
+          <h1 className="page-title">Buy credits</h1>
+          <p className="page-subtitle">Purchase SuperAdmin-generated credit packages for {activeAccount?.name ?? "the active account"}. Payment is handled by Billing and Stripe Checkout.</p>
         </div>
-        <button className="button primary" type="button" onClick={() => setNotice("Redirecting to Stripe Checkout...")}>
-          <ShoppingCart size={16} aria-hidden="true" />
-          Buy credits
-        </button>
+        <span className="status-badge live">Balance {(balance ?? 0).toLocaleString()}</span>
       </div>
 
       {notice ? <div className="notice">{notice}</div> : null}
+      {error ? <div className="danger-note with-top-gap">{error}</div> : null}
 
-      <div className="split-layout with-top-gap">
-        <form className="panel form-grid" onSubmit={addListing}>
-          <CircleDollarSign size={22} color="var(--color-primary)" aria-hidden="true" />
-          <h2>List surplus credits</h2>
-          <div className="field">
-            <label htmlFor="credits">Credits</label>
-            <input
-              id="credits"
-              type="number"
-              min={100}
-              step={100}
-              value={credits}
-              onChange={(event) => setCredits(Number(event.target.value))}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="price">Price</label>
-            <input id="price" value={price} onChange={(event) => setPrice(event.target.value)} />
-          </div>
-          <button className="button secondary" type="submit">
-            <Plus size={16} aria-hidden="true" />
-            List credits
-          </button>
-        </form>
-
-        <div className="stack">
-          <div className="table-panel">
-            <div className="table-header">
-              <h2>Your listings</h2>
+      <div className="card-grid with-top-gap">
+        {packages.length ? packages.map((item) => (
+          <article className="feature-card" key={item.key}>
+            <PackageCheck size={24} color="var(--color-primary)" aria-hidden="true" />
+            <h3>{item.key}</h3>
+            <p>
+              SuperAdmin rate: {item.credits.toLocaleString()} credits for {money(item.price_cents, item.currency)}.
+            </p>
+            <div className="field with-top-gap">
+              <label htmlFor={`credits-${item.key}`}>Credits to buy</label>
+              <input
+                id={`credits-${item.key}`}
+                type="number"
+                min={1}
+                step={100}
+                value={selectedCredits[item.key] ?? item.credits}
+                onChange={(event) =>
+                  setSelectedCredits((current) => ({
+                    ...current,
+                    [item.key]: Number(event.target.value)
+                  }))
+                }
+              />
             </div>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Credits</th>
-                  <th>Price</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {listings.map((listing) => (
-                  <tr key={listing.id}>
-                    <td className="mono">{listing.credits.toLocaleString()}</td>
-                    <td className="mono">{listing.price}</td>
-                    <td>
-                      <span className="status-badge live">{listing.status}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="table-panel">
-            <div className="table-header">
-              <h2>Marketplace</h2>
-            </div>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Seller</th>
-                  <th>Credits</th>
-                  <th>Price</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {marketplaceListings.map((listing) => (
-                  <tr key={listing.id}>
-                    <td>{listing.seller}</td>
-                    <td className="mono">{listing.credits.toLocaleString()}</td>
-                    <td className="mono">{listing.price}</td>
-                    <td>
-                      <button className="button secondary" type="button" onClick={() => setNotice("Purchase queued.")}>
-                        Buy
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+            <strong className="metric-value">{money(estimatedPrice(item), item.currency)}</strong>
+            <button className="button primary with-top-gap" type="button" onClick={() => void buyPackage(item)} disabled={busyPackage !== null}>
+              {busyPackage === item.key ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <CreditCard size={16} aria-hidden="true" />}
+              {busyPackage === item.key ? "Opening checkout..." : `Buy ${selectedAmount(item).toLocaleString()} credits`}
+            </button>
+          </article>
+        )) : <div className="empty-state">No credit packages are configured yet.</div>}
       </div>
     </section>
   );
