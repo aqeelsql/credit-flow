@@ -60,6 +60,32 @@ class CreditCheckoutResponse(BaseModel):
     status: str
 
 
+class CreditPurchaseResponse(BaseModel):
+    id: str
+    event_id: str | None = None
+    account_id: str | None = None
+    package_key: str | None = None
+    credits: int
+    amount_paid: int
+    currency: str
+    stripe_checkout_session_id: str | None = None
+    payment_intent_id: str | None = None
+    published: bool
+    created_at: datetime
+    published_at: datetime | None = None
+
+
+class CreditCheckoutSyncResponse(BaseModel):
+    status: str
+    event_id: str
+    invoice_id: str
+    outbox_event_id: str
+    account_id: str
+    credits: int
+    amount_paid: int
+    currency: str
+
+
 class PaymentMethodSetupResponse(BaseModel):
     checkout_url: str
     session_id: str
