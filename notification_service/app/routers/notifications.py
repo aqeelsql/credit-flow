@@ -28,16 +28,25 @@ async def send_test_email(
 ) -> TestEmailResponse:
     event_id = f"notification.test:{uuid.uuid4()}"
     subject = "CreditFlow notification test"
-    html = "<h2>CreditFlow notification test</h2><p>Your notification service can send email through SMTP.</p>"
-    text = "CreditFlow notification test. Your notification service can send email through SMTP."
+html = (
+    f"<h2>CreditFlow notification test</h2>"
+    f"<p>Your notification service can reach "
+    f"{email_client.provider.upper()}.</p>"
+)
+
+text = (
+    f"CreditFlow notification test. "
+    f"Your notification service can reach "
+    f"{email_client.provider.upper()}."
+)
     provider_message_id = None
     try:
         provider_message_id = await email_client.send_email(to=payload.recipient, subject=subject, html=html, text=text)
         async with db.transaction() as conn:
-            await NotificationRepository(conn).log_attempt(event_id=event_id, event_type="notification.test", notification_type="test_email", channel="email", recipient=payload.recipient, subject=subject, status="sent", provider_message_id=provider_message_id, metadata={"manual_test": True})
+            await NotificationRepository(conn).log_attempt(event_id=event_id, event_type="notification.test", notification_type="test_email", channel="email", recipient=payload.recipient, subject=subject, status="sent", provider=email_client.provider, provider_message_id=provider_message_id, metadata={"manual_test": True})
         await event_bus.publish("notification.sent", {"event_id": event_id, "source_event_type": "notification.test", "notification_type": "test_email", "recipient": payload.recipient, "provider_message_id": provider_message_id})
     except Exception as exc:
         async with db.transaction() as conn:
-            await NotificationRepository(conn).log_attempt(event_id=event_id, event_type="notification.test", notification_type="test_email", channel="email", recipient=payload.recipient, subject=subject, status="failed", error=str(exc), metadata={"manual_test": True})
+            await NotificationRepository(conn).log_attempt(event_id=event_id, event_type="notification.test", notification_type="test_email", channel="email", recipient=payload.recipient, subject=subject, status="failed", provider=email_client.provider, error=str(exc), metadata={"manual_test": True})
         raise
     return TestEmailResponse(status="sent", recipient=payload.recipient, provider_message_id=provider_message_id)
