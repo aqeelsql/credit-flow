@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw, Search, Users } from "lucide-react";
@@ -12,11 +12,29 @@ import {
 } from "@/lib/admin-api";
 import { useAuth } from "@/lib/auth-context";
 
+type DirectoryAccount = AdminAccountDirectoryItem & {
+  credit_balance?: number | null;
+  tokens_used?: number | null;
+  sync_errors?: Record<string, string>;
+};
+
+type DirectoryResponse = DirectoryAccount[] | { items?: DirectoryAccount[]; errors?: Record<string, string> };
+
+function normalizeDirectoryResponse(response: DirectoryResponse) {
+  if (Array.isArray(response)) return { items: response, errors: {} as Record<string, string> };
+  return { items: response.items ?? [], errors: response.errors ?? {} };
+}
+
+function compactId(value?: string | null, size = 14) {
+  if (!value) return "—";
+  return value.length > size + 4 ? `${value.slice(0, size)}…${value.slice(-4)}` : value;
+}
+
 export default function DirectoryPage() {
   const { accessToken } = useAuth();
   const [query, setQuery] = useState("");
-  const [accounts, setAccounts] = useState<AdminAccountDirectoryItem[]>([]);
-  const [selectedAccountId, setSelectedAccountId] = useState<string>("");
+  const [accounts, setAccounts] = useState<DirectoryAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState("");
   const [overview, setOverview] = useState<AdminAccountOverview | null>(null);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [loadingOverview, setLoadingOverview] = useState(false);
@@ -29,13 +47,15 @@ export default function DirectoryPage() {
     try {
       const params = new URLSearchParams({ limit: "100" });
       if (query.trim()) params.set("q", query.trim());
-      const response = await adminFetch<AdminAccountDirectoryResponse>(`/accounts?${params.toString()}`, accessToken);
-      setAccounts(response.items ?? []);
-      setDirectoryWarnings(response.errors ?? {});
-      const first = response.items?.[0]?.id ?? "";
+      const response = await adminFetch<DirectoryResponse>(`/accounts?${params.toString()}`, accessToken);
+      const normalized = normalizeDirectoryResponse(response);
+      setAccounts(normalized.items);
+      setDirectoryWarnings(normalized.errors);
+      const first = normalized.items[0]?.id ?? "";
       if (!selectedAccountId && first) setSelectedAccountId(first);
     } catch (err) {
       setAccounts([]);
+      setDirectoryWarnings({});
       setError(err instanceof Error ? err.message : "Unable to load account directory.");
     } finally {
       setLoadingAccounts(false);
@@ -44,12 +64,13 @@ export default function DirectoryPage() {
 
   const loadOverview = useCallback(
     async (accountId: string) => {
-      if (!accountId) return;
+      const nextAccountId = accountId.trim();
+      if (!nextAccountId) return;
       setLoadingOverview(true);
       setError(null);
       try {
-        setSelectedAccountId(accountId);
-        setOverview(await adminFetch<AdminAccountOverview>(`/accounts/${encodeURIComponent(accountId)}/overview`, accessToken));
+        setSelectedAccountId(nextAccountId);
+        setOverview(await adminFetch<AdminAccountOverview>(`/accounts/${encodeURIComponent(nextAccountId)}/overview`, accessToken));
       } catch (err) {
         setOverview(null);
         setError(err instanceof Error ? err.message : "Unable to load account overview.");
@@ -106,7 +127,7 @@ export default function DirectoryPage() {
       <div className="table-panel with-top-gap">
         <div className="table-header">
           <h2>Synced accounts</h2>
-          <span className="status-badge neutral">{accounts.length} accounts</span>
+          <span className="status-badge neutral">{loadingAccounts ? "Loading" : `${accounts.length} accounts`}</span>
         </div>
         {accounts.length ? (
           <table className="data-table">
@@ -116,33 +137,40 @@ export default function DirectoryPage() {
                 <th>Owner</th>
                 <th>Plan</th>
                 <th>Credits</th>
+                <th>AI usage</th>
                 <th>Members</th>
+                <th>Sync</th>
                 <th>Action</th>
               </tr>
             </thead>
             <tbody>
-              {accounts.map((account) => (
-                <tr key={account.id} className={account.id === selectedAccountId ? "selected-row" : undefined}>
-                  <td>
-                    <strong>{account.name}</strong>
-                    <br />
-                    <span className="mono">{account.id}</span>
-                  </td>
-                  <td>
-                    {account.owner_name || "No owner name"}
-                    <br />
-                    <span className="muted-text">{account.owner_email || "No owner email"}</span>
-                  </td>
-                  <td>{account.plan}</td>
-                  <td className="mono">{account.credits.toLocaleString()}</td>
-                  <td className="mono">{account.team_size}</td>
-                  <td>
-                    <button className="button ghost" type="button" onClick={() => void loadOverview(account.id)} disabled={loadingOverview && selectedAccountId === account.id}>
-                      Inspect
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {accounts.map((account) => {
+                const rowErrors = account.sync_errors ?? {};
+                return (
+                  <tr key={account.id} className={account.id === selectedAccountId ? "selected-row" : undefined}>
+                    <td>
+                      <strong>{account.name}</strong>
+                      <br />
+                      <span className="muted mono">{compactId(account.id)}</span>
+                    </td>
+                    <td>
+                      {account.owner_name || "No owner name"}
+                      <br />
+                      <span className="muted-text">{account.owner_email || "No owner email"}</span>
+                    </td>
+                    <td>{account.plan}</td>
+                    <td className="mono">{(account.credit_balance ?? account.credits).toLocaleString()}</td>
+                    <td className="mono">{(account.tokens_used ?? 0).toLocaleString()}</td>
+                    <td className="mono">{account.team_size.toLocaleString()}</td>
+                    <td>{Object.keys(rowErrors).length ? <span className="status-badge warning">Partial</span> : <span className="status-badge live">Synced</span>}</td>
+                    <td>
+                      <button className="button ghost" type="button" onClick={() => void loadOverview(account.id)} disabled={loadingOverview && selectedAccountId === account.id}>
+                        Inspect
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         ) : (
@@ -177,14 +205,7 @@ export default function DirectoryPage() {
             </div>
             {overview?.members?.length ? (
               <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>User</th>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
+                <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th></tr></thead>
                 <tbody>
                   {overview.members.map((member, index) => (
                     <tr key={String(member.id ?? member.user_id ?? index)}>
