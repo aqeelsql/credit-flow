@@ -27,6 +27,7 @@ def build_metadata(schema: str) -> MetaData:
         "users",
         metadata,
         Column("id", UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")),
+        Column("name", String(180)),
         Column("email", String(320), nullable=False, unique=True),
         Column("status", user_status, nullable=False, server_default=UserStatus.ACTIVE.value),
         Column("email_verified_at", DateTime(timezone=True)),

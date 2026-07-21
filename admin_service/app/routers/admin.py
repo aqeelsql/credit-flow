@@ -6,7 +6,7 @@ from app.database import Database
 from app.dependencies import current_principal, database_dep, redis_sessions_dep, scoped_account
 from app.redis_sessions import RedisSessions
 from app.repository import AuditRepository
-from app.schemas import AccountOverviewResponse, AuditLogResponse, PlatformAccountResponse, PlatformOverviewResponse, Principal, RevokeSessionResponse, SessionResponse
+from app.schemas import AccountDirectoryResponse, AccountOverviewResponse, AuditLogResponse, Principal, RevokeSessionResponse, SessionResponse
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -37,23 +37,32 @@ async def audit_log(account_id: str | None = Query(default=None), action: str | 
     return AuditLogResponse(items=rows)
 
 
-
-@router.get("/accounts", response_model=list[PlatformAccountResponse])
-async def list_accounts(q: str | None = Query(default=None), limit: int = Query(default=100, ge=1, le=500), offset: int = Query(default=0, ge=0), principal: Principal = Depends(current_principal)):
+@router.get("/accounts", response_model=AccountDirectoryResponse)
+async def account_directory(q: str | None = Query(default=None), limit: int = Query(default=100, ge=1, le=250), offset: int = Query(default=0, ge=0), principal: Principal = Depends(current_principal)):
     if principal.role != "SuperAdmin":
-        from app.errors import AdminError
-        raise AdminError("superadmin_required", "SuperAdmin role is required to browse all platform accounts.", 403)
-    rows = await AggregatorClient(get_settings()).list_accounts(principal, q=q, limit=limit, offset=offset)
-    return [PlatformAccountResponse(**row) for row in rows]
+        account_id = scoped_account(principal, None)
+        data = await AggregatorClient(get_settings()).account_overview(account_id or "", principal)
+        account = data.get("account") or {}
+        return AccountDirectoryResponse(
+            items=[
+                {
+                    "id": account_id or "",
+                    "name": str(account.get("name") or account_id or "Current account"),
+                    "type": str(account.get("type") or "team"),
+                    "plan": str(account.get("plan") or "Unknown"),
+                    "credits": int(account.get("credits") or 0),
+                    "team_size": len(data.get("members") or []),
+                    "owner_name": None,
+                    "owner_email": None,
+                    "created_at": "",
+                    "updated_at": "",
+                }
+            ],
+            errors=data.get("errors") or {},
+        )
+    data = await AggregatorClient(get_settings()).list_accounts(q=q, limit=limit, offset=offset)
+    return AccountDirectoryResponse(**data)
 
-
-@router.get("/platform/overview", response_model=PlatformOverviewResponse)
-async def platform_overview(q: str | None = Query(default=None), limit: int = Query(default=100, ge=1, le=500), principal: Principal = Depends(current_principal)):
-    if principal.role != "SuperAdmin":
-        from app.errors import AdminError
-        raise AdminError("superadmin_required", "SuperAdmin role is required to view platform-wide operations.", 403)
-    data = await AggregatorClient(get_settings()).platform_overview(principal, q=q, limit=limit)
-    return PlatformOverviewResponse(**data)
 
 @router.get("/accounts/{account_id}/overview", response_model=AccountOverviewResponse)
 async def account_overview(account_id: str, principal: Principal = Depends(current_principal)):

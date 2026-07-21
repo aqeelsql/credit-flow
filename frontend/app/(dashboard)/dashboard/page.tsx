@@ -6,6 +6,7 @@ import { RouteGuard } from "@/components/RouteGuard/RouteGuard";
 import { useAuth } from "@/lib/auth-context";
 
 type BalanceResponse = { balance: number; low_balance_threshold?: number; is_low_balance?: boolean };
+type CreditTransaction = { id: string; amount: number; reason: string; source_event_id?: string | null; metadata?: Record<string, unknown>; created_at: string };
 
 async function readError(response: Response) {
   try {
@@ -27,6 +28,7 @@ export default function DashboardPage() {
 function OwnerDashboard() {
   const { activeAccount, accessToken } = useAuth();
   const [balance, setBalance] = useState<number | null>(null);
+  const [purchases, setPurchases] = useState<CreditTransaction[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,6 +39,11 @@ function OwnerDashboard() {
       if (!response.ok) throw new Error(await readError(response));
       const data = (await response.json()) as BalanceResponse;
       setBalance(data.balance);
+      const txResponse = await fetch("/api/credits/transactions?limit=10", { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" });
+      if (txResponse.ok) {
+        const transactions = (await txResponse.json()) as CreditTransaction[];
+        setPurchases(transactions.filter((item) => item.amount > 0 && item.reason === "purchase").slice(0, 5));
+      }
     };
     load().catch((err) => setError(err instanceof Error ? err.message : "Unable to load credit balance."));
   }, [accessToken]);
@@ -76,8 +83,13 @@ function OwnerDashboard() {
 
       <div className="admin-grid with-top-gap">
         <article className="panel">
-          <div className="panel-header"><h2>Usage signal</h2><span className="status-badge neutral">Live only</span></div>
-          <p>No generated placeholder activity is shown in staging. Events will appear after real service activity is recorded.</p>
+          <div className="panel-header"><h2>Recent credit purchases</h2><span className="status-badge neutral">{purchases.length} shown</span></div>
+          {purchases.length ? (
+            <table className="data-table">
+              <thead><tr><th>Credits</th><th>Package</th><th>Date</th></tr></thead>
+              <tbody>{purchases.map((item) => <tr key={item.id}><td className="mono">+{item.amount.toLocaleString()}</td><td>{String(item.metadata?.package_key ?? "Stripe checkout")}</td><td>{new Date(item.created_at).toLocaleString()}</td></tr>)}</tbody>
+            </table>
+          ) : <p>No credit purchases recorded yet. Completed Stripe purchases will appear here after the webhook is processed.</p>}
         </article>
         <article className="panel">
           <div className="panel-header"><h2>Plan posture</h2><WalletCards size={22} color="var(--color-primary)" aria-hidden="true" /></div>

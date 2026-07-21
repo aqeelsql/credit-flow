@@ -49,6 +49,7 @@ class EventBus:
             exchange = await self._channel.declare_exchange(exchange_name, ExchangeType.TOPIC, durable=True)
             await self._queue.bind(exchange, routing_key="invoice.paid")
             await self._queue.bind(exchange, routing_key="refund.issued")
+            await self._queue.bind(exchange, routing_key="ai.generation_completed")
         await self._queue.consume(self._consume)
 
     async def close(self) -> None:

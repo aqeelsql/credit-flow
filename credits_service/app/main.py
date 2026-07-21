@@ -25,6 +25,11 @@ def event_id_from_payload(routing_key: str, payload: dict[str, Any]) -> str:
     explicit_id = payload.get("event_id") or payload.get("id")
     if explicit_id:
         return str(explicit_id)
+    if routing_key == "ai.generation_completed":
+        if payload.get("request_id"):
+            return str(payload["request_id"])
+        if payload.get("job_id"):
+            return f"ai.generation_completed:{payload['job_id']}"
     invoice_id = payload.get("invoice_id") or payload.get("payment_intent_id") or payload.get("refund_id")
     if invoice_id:
         return f"{routing_key}:{invoice_id}"
@@ -42,6 +47,49 @@ def credits_from_payload(payload: dict[str, Any]) -> int | None:
     if plan is not None:
         return PLAN_CREDITS.get(str(plan).lower())
     return None
+
+
+def int_from_payload(payload: dict[str, Any], key: str) -> int | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def generation_credits_from_payload(payload: dict[str, Any]) -> int | None:
+    total_tokens = int_from_payload(payload, "total_tokens")
+    if total_tokens:
+        return total_tokens
+    prompt_tokens = int_from_payload(payload, "prompt_tokens") or 0
+    completion_tokens = int_from_payload(payload, "completion_tokens") or 0
+    if prompt_tokens + completion_tokens > 0:
+        return prompt_tokens + completion_tokens
+    text = f"{payload.get('prompt') or ''}\n{payload.get('response_text') or ''}".strip()
+    if text:
+        return max(1, (len(text) + 3) // 4)
+    return None
+
+
+def generation_metadata(payload: dict[str, Any], credits_used: int) -> dict[str, Any]:
+    return {
+        "kind": "ai_generation",
+        "service": "ai_generation_service",
+        "job_id": payload.get("job_id"),
+        "request_id": payload.get("request_id"),
+        "user_id": payload.get("user_id"),
+        "model": payload.get("model"),
+        "prompt_tokens": payload.get("prompt_tokens"),
+        "completion_tokens": payload.get("completion_tokens"),
+        "total_tokens": payload.get("total_tokens"),
+        "credits_used": credits_used,
+        "prompt_preview": str(payload.get("prompt") or "")[:240],
+        "post_preview": str(payload.get("response_text") or "")[:320],
+        "completed_at": payload.get("completed_at"),
+    }
 
 
 async def publish_or_log(event_bus: EventBus, routing_key: str, payload: dict[str, Any]) -> None:
@@ -108,7 +156,7 @@ async def handle_service_event(
         logging.warning("Skipped %s without account_id", routing_key)
         return
 
-    credits = credits_from_payload(payload)
+    credits = generation_credits_from_payload(payload) if routing_key == "ai.generation_completed" else credits_from_payload(payload)
     if not credits:
         logging.warning("Skipped %s without credits amount", routing_key)
         return
@@ -120,6 +168,13 @@ async def handle_service_event(
             entry, applied = await repo.credit_account(str(account_id), credits, event_id, LedgerReason.PURCHASE, payload)
             if applied and entry:
                 await publish_balance_events(repo, event_bus, settings, str(account_id), credits, event_id, "purchase")
+            return
+
+        if routing_key == "ai.generation_completed":
+            metadata = generation_metadata(payload, credits)
+            entry, applied = await repo.consume_credits(str(account_id), credits, event_id, metadata)
+            if applied and entry:
+                await publish_balance_events(repo, event_bus, settings, str(account_id), -credits, event_id, "ai_generation")
             return
 
         if routing_key == "refund.issued":

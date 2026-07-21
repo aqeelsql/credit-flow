@@ -59,7 +59,7 @@ class StripeClient:
         return stripe.checkout.Session.create(
             mode="payment",
             customer=customer_id,
-            success_url=f"{self.settings.frontend_base_url}/billing?checkout=success&type=credits",
+            success_url=f"{self.settings.frontend_base_url}/credits?checkout=success&type=credits&session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{self.settings.frontend_base_url}/credits?checkout=cancelled",
             client_reference_id=account_id,
             metadata=metadata,
@@ -75,6 +75,10 @@ class StripeClient:
                 }
             ],
         )
+
+    async def retrieve_checkout_session(self, session_id: str) -> stripe.checkout.Session:
+        self.ensure_configured()
+        return stripe.checkout.Session.retrieve(session_id)
 
     async def get_default_payment_method(self, customer_id: str) -> dict | None:
         self.ensure_configured()
