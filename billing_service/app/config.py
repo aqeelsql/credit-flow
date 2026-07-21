@@ -22,7 +22,9 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     database_url: str = "postgresql://creditflow:creditflow@localhost:5432/creditflow"
     database_schema: str = Field(default="billing", validation_alias=billing_env("DATABASE_SCHEMA"))
-    internal_service_token: str = Field(default="", repr=False)
+    internal_service_token: str = Field(default="", validation_alias=AliasChoices("BILLING_INTERNAL_SERVICE_TOKEN", "INTERNAL_SERVICE_TOKEN", "ADMIN_INTERNAL_SERVICE_TOKEN"), repr=False)
+    credits_service_url: str = Field(default="http://localhost:8007", validation_alias=AliasChoices("BILLING_CREDITS_SERVICE_URL", "CREDITS_SERVICE_URL"))
+    credits_service_timeout_seconds: float = Field(default=8.0, validation_alias=billing_env("CREDITS_SERVICE_TIMEOUT_SECONDS"))
 
     rabbitmq_url: str = "amqp://guest:guest@localhost/"
     rabbitmq_exchange: str = Field(default="billing_events", validation_alias=AliasChoices("BILLING_RABBITMQ_EXCHANGE"))

@@ -57,6 +57,7 @@ def build_metadata(schema: str) -> MetaData:
         Column("id", UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")),
         Column("account_id", UUID(as_uuid=True), ForeignKey(f"{schema}.accounts.id", ondelete="CASCADE"), nullable=False),
         Column("user_id", UUID(as_uuid=True), nullable=False),
+        Column("name", String(180)),
         Column("email", String(320), nullable=False),
         Column("role", account_role, nullable=False),
         Column("status", member_status, nullable=False, server_default=MemberStatus.ACTIVE.value),

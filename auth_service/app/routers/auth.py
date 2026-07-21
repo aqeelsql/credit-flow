@@ -5,7 +5,7 @@ import uuid
 
 from fastapi import APIRouter, Body, Depends, Request, Response
 
-from app.accounts import accept_invite_for_user, create_individual_account, resolve_account_role
+from app.accounts import accept_invite_for_user, create_individual_account, resolve_account_role, validate_invite_for_email
 from app.config import Settings
 from app.database import Database
 from app.dependencies import (
@@ -147,7 +147,31 @@ async def signup(
     publisher: EventPublisher = Depends(publisher_dep),
 ) -> SignupResponse:
     password_hash = hash_password(payload.password, settings.bcrypt_rounds)
+    display_name = payload.name.strip()
     invite_code = payload.invite_code.strip() if payload.invite_code else None
+    if invite_code:
+        await validate_invite_for_email(settings, str(payload.email), invite_code)
+        async with db.transaction() as conn:
+            repo = AuthRepository(conn)
+            existing = await repo.get_user_by_email(payload.email)
+            if existing is not None:
+                if existing["status"] == UserStatus.ACTIVE.value:
+                    raise AuthError("email_already_registered", "An account already exists for this email. Please log in instead.", 409)
+                if existing["status"] != UserStatus.PENDING_VERIFICATION.value:
+                    raise AuthError("account_disabled", "This account cannot sign up again. Contact support.", 403)
+                await repo.update_user_name(existing["id"], display_name)
+                await repo.set_user_password(existing["id"], password_hash)
+                user = await repo.activate_user(existing["id"])
+            else:
+                user = await repo.create_user_with_credential(payload.email, password_hash, name=display_name, active=True)
+        account = await accept_invite_for_user(settings, user["id"], user["email"], invite_code, display_name)
+        return SignupResponse(
+            status="active",
+            user_id=user["id"],
+            account_id=account.get("id"),
+            message="Invite accepted. You can now log in without email verification.",
+        )
+
     verification_token = random_token_urlsafe(48)
     created = True
     async with db.transaction() as conn:
@@ -163,43 +187,10 @@ async def signup(
             if invite_code:
                 await repo.upsert_credential(user["id"], password_hash)
         else:
-            user = await repo.create_user_with_credential(payload.email, password_hash)
+            user = await repo.create_user_with_credential(payload.email, password_hash, name=display_name)
+        await repo.create_email_verification_token(user["id"], sha256_hex(verification_token), expires_in(settings.email_verification_ttl_seconds))
 
-        if not invite_code:
-            await repo.create_email_verification_token(user["id"], sha256_hex(verification_token), expires_in(settings.email_verification_ttl_seconds))
-
-    if invite_code:
-        account = await accept_invite_for_user(settings, user["id"], user["email"], invite_code)
-        async with db.transaction() as conn:
-            repo = AuthRepository(conn)
-            user = await repo.activate_user(user["id"])
-            token_response, refresh_token = await _issue_session(repo, redis_state, settings, user["id"], str(account.get("id")), str(account.get("role") or "Member"), email=user["email"])
-        _set_refresh_cookie(response, settings, refresh_token)
-        await _publish_event(
-            publisher,
-            "user.logged_in",
-            {
-                "user_id": user["id"],
-                "email": user["email"],
-                "account_id": account.get("id"),
-                "role": account.get("role") or "Member",
-                "jti": token_response.jti,
-                "login_reason": "invite_signup",
-            },
-            settings,
-        )
-        return SignupResponse(
-            status="active",
-            user_id=user["id"],
-            account_id=account.get("id"),
-            message="Invite accepted. You are signed in as a team member.",
-            access_token=token_response.access_token,
-            expires_in=token_response.expires_in,
-            role=token_response.role,
-            jti=token_response.jti,
-        )
-
-    account = await create_individual_account(settings, user["id"], user["email"], payload.account_name)
+    account = await create_individual_account(settings, user["id"], user["email"], payload.account_name, display_name)
     verification_url = f"{settings.frontend_base_url.rstrip('/')}/verify-email?token={verification_token}"
 
     await _publish_event(
@@ -208,6 +199,7 @@ async def signup(
         {
             "event_id": f"user.registered:{uuid.uuid4()}",
             "user_id": user["id"],
+            "name": user.get("name") or display_name,
             "email": user["email"],
             "account_id": account.get("id"),
             "account_name": account.get("name") or payload.account_name,
@@ -263,14 +255,7 @@ async def login(
     if user["email"].lower() in settings.superadmin_email_set:
         account_id, role = "platform", "SuperAdmin"
     else:
-        try:
-            account_id, role = await resolve_account_role(settings, user["id"], payload.account_id)
-        except AuthError as exc:
-            if exc.code != "account_membership_missing" or payload.account_id:
-                raise
-            account = await create_individual_account(settings, user["id"], user["email"])
-            account_id = str(account.get("id"))
-            role = str(account.get("role") or "Owner")
+        account_id, role = await resolve_account_role(settings, user["id"], payload.account_id)
     async with db.transaction() as conn:
         repo = AuthRepository(conn)
         token_response, refresh_token = await _issue_session(repo, redis_state, settings, user["id"], account_id, role, email=user["email"])

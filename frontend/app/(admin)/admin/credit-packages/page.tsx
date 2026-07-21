@@ -13,6 +13,19 @@ type CreditPackage = {
   active: boolean;
 };
 
+type CreditPurchase = {
+  id: string;
+  account_id?: string | null;
+  package_key?: string | null;
+  credits: number;
+  amount_paid: number;
+  currency: string;
+  stripe_checkout_session_id?: string | null;
+  payment_intent_id?: string | null;
+  published: boolean;
+  created_at: string;
+};
+
 async function api<T>(path: string, token: string | null, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -37,6 +50,7 @@ function keyFromCredits(credits: number) {
 export default function AdminCreditPackagesPage() {
   const { accessToken } = useAuth();
   const [packages, setPackages] = useState<CreditPackage[]>([]);
+  const [purchases, setPurchases] = useState<CreditPurchase[]>([]);
   const [credits, setCredits] = useState(5000);
   const [price, setPrice] = useState("19.00");
   const [currency, setCurrency] = useState("usd");
@@ -51,7 +65,12 @@ export default function AdminCreditPackagesPage() {
     setLoading(true);
     setError(null);
     try {
-      setPackages(await api<CreditPackage[]>("/api/billing/admin/credits/packages", accessToken));
+      const [packageRows, purchaseRows] = await Promise.all([
+        api<CreditPackage[]>("/api/billing/admin/credits/packages", accessToken),
+        api<CreditPurchase[]>("/api/billing/admin/credits/purchases", accessToken)
+      ]);
+      setPackages(packageRows);
+      setPurchases(purchaseRows);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load credit packages.");
     } finally {
@@ -150,6 +169,27 @@ export default function AdminCreditPackagesPage() {
             </tbody>
           </table>
         ) : <div className="empty-state">No packages yet. Create the first package above.</div>}
+      </div>
+
+      <div className="table-panel with-top-gap">
+        <div className="table-header"><h2>Owner credit purchases</h2><span className="status-badge neutral">{purchases.length} recent</span></div>
+        {purchases.length ? (
+          <table className="data-table">
+            <thead><tr><th>Account</th><th>Package</th><th>Credits</th><th>Paid</th><th>Event</th><th>Date</th></tr></thead>
+            <tbody>
+              {purchases.map((item) => (
+                <tr key={item.id}>
+                  <td className="mono">{item.account_id || "—"}</td>
+                  <td>{item.package_key || "Custom"}</td>
+                  <td className="mono">+{item.credits.toLocaleString()}</td>
+                  <td className="mono">{money(item.amount_paid, item.currency)}</td>
+                  <td><span className={item.published ? "status-badge live" : "status-badge neutral"}>{item.published ? "Published" : "Queued"}</span></td>
+                  <td>{new Date(item.created_at).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : <div className="empty-state">No owner credit purchases yet. Stripe payments will appear here after checkout completion.</div>}
       </div>
     </section>
   );
