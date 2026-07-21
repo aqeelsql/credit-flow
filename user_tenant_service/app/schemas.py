@@ -1,4 +1,5 @@
-﻿from pydantic import BaseModel, EmailStr, Field
+from datetime import datetime
+from pydantic import BaseModel, EmailStr, Field
 
 from app.models import AccountRole, AccountType, MemberStatus
 
@@ -45,6 +46,19 @@ class MembershipListResponse(BaseModel):
     memberships: list[MembershipResponse]
 
 
+
+class PlatformAccountResponse(BaseModel):
+    id: str
+    name: str
+    type: AccountType
+    plan: str
+    credits: int
+    owner_user_id: str | None = None
+    owner_email: EmailStr | None = None
+    team_size: int
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
 class CreateAccountRequest(BaseModel):
     type: AccountType = AccountType.INDIVIDUAL
     name: str = Field(min_length=1, max_length=180)
@@ -73,6 +87,12 @@ class AcceptInviteRequest(BaseModel):
     code: str = Field(min_length=16)
 
 
+class InternalAcceptInviteRequest(BaseModel):
+    code: str = Field(min_length=16)
+    user_id: str = Field(min_length=1)
+    email: EmailStr
+
+
 class TeamMemberResponse(BaseModel):
     id: str
     user_id: str | None = None
@@ -80,7 +100,15 @@ class TeamMemberResponse(BaseModel):
     email: EmailStr
     role: AccountRole
     status: str
+    joined_at: datetime | None = None
+    invite_id: str | None = None
+    invited_by_user_id: str | None = None
+    invite_accepted_at: datetime | None = None
+    joined_via_invite: bool = False
 
 
 class UpdateMemberRoleRequest(BaseModel):
     role: AccountRole
+
+
+

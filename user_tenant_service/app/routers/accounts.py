@@ -1,7 +1,7 @@
-﻿import logging
+import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.config import Settings
 from app.database import Database
@@ -22,11 +22,13 @@ from app.schemas import (
     AccountResponse,
     AccountSummaryResponse,
     CreateAccountRequest,
+    InternalAcceptInviteRequest,
     InternalCreateIndividualRequest,
     InviteMemberRequest,
     InviteMemberResponse,
     MembershipListResponse,
     MembershipResponse,
+    PlatformAccountResponse,
     Principal,
     TeamMemberResponse,
     UpdateMemberRoleRequest,
@@ -139,6 +141,23 @@ async def create_account(
     await publish_or_log(event_bus, "account.created", account_event(row, principal.user_id))
     return account_response(row)
 
+
+
+@router.get("/platform/accounts", response_model=list[PlatformAccountResponse])
+async def platform_accounts(
+    q: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    principal: Principal = Depends(current_principal),
+    settings: Settings = Depends(settings_dep),
+    db: Database = Depends(database_dep),
+) -> list[PlatformAccountResponse]:
+    if principal.role != "SuperAdmin":
+        raise AccountError("superadmin_required", "SuperAdmin role is required to browse all platform accounts.", 403)
+    async with db.acquire() as conn:
+        repo = AccountRepository(conn, settings)
+        rows = await repo.list_platform_accounts(q=q, limit=limit, offset=offset)
+    return [PlatformAccountResponse(**row) for row in rows]
 
 @router.get("/{account_id}/summary", response_model=AccountSummaryResponse)
 async def account_summary(
@@ -278,6 +297,31 @@ async def internal_memberships(
     return MembershipListResponse(memberships=[membership_response(row) for row in rows])
 
 
+@router.post("/internal/invites/accept", response_model=AccountResponse, dependencies=[Depends(require_internal)])
+async def internal_accept_invite(
+    payload: InternalAcceptInviteRequest,
+    settings: Settings = Depends(settings_dep),
+    db: Database = Depends(database_dep),
+    event_bus: EventBus = Depends(event_bus_dep),
+) -> AccountResponse:
+    async with db.transaction() as conn:
+        repo = AccountRepository(conn, settings)
+        row = await repo.accept_invite(payload.code, payload.user_id, payload.email)
+    await publish_or_log(
+        event_bus,
+        "member.joined",
+        {
+            "account_id": row["id"],
+            "user_id": payload.user_id,
+            "member_id": row.get("member_id"),
+            "invite_id": row.get("invite_id"),
+            "role": row["role"],
+            "email": payload.email,
+        },
+    )
+    return account_response(row)
+
+
 @router.post("/internal/users/{user_id}/individual-account", response_model=AccountResponse, dependencies=[Depends(require_internal)])
 async def internal_create_individual_account(
     user_id: str,
@@ -292,3 +336,4 @@ async def internal_create_individual_account(
     if row.get("_created"):
         await publish_or_log(event_bus, "account.created", account_event(row, user_id))
     return account_response(row)
+

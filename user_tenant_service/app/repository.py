@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 import hashlib
 import secrets
@@ -67,6 +67,41 @@ class AccountRepository:
         )
         return [dict(row) for row in rows]
 
+
+    async def list_platform_accounts(self, q: str | None = None, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        params: list[Any] = []
+        where_sql = ""
+        if q:
+            params.append(f"%{q}%")
+            where_sql = f"WHERE a.id::text ILIKE ${len(params)} OR a.name ILIKE ${len(params)} OR owner.email ILIKE ${len(params)}"
+        params.extend([limit, offset])
+        rows = await self.conn.fetch(
+            f"""
+            SELECT
+                a.id::text AS id,
+                a.name,
+                a.type::text AS type,
+                a.plan,
+                a.credits,
+                a.created_by_user_id::text AS owner_user_id,
+                owner.email AS owner_email,
+                COALESCE(active_members.team_size, 0)::int AS team_size,
+                a.created_at,
+                a.updated_at
+            FROM accounts a
+            LEFT JOIN account_members owner ON owner.account_id = a.id AND owner.role = 'Owner'::account_role AND owner.status = 'active'::member_status
+            LEFT JOIN LATERAL (
+                SELECT count(*) AS team_size
+                FROM account_members tm
+                WHERE tm.account_id = a.id AND tm.status = 'active'::member_status
+            ) active_members ON true
+            {where_sql}
+            ORDER BY a.created_at DESC
+            LIMIT ${len(params) - 1} OFFSET ${len(params)}
+            """,
+            *params,
+        )
+        return [dict(row) for row in rows]
     async def create_account_with_owner(
         self,
         user_id: str,
@@ -164,20 +199,33 @@ class AccountRepository:
         rows = await self.conn.fetch(
             """
             SELECT
-                id::text AS id,
-                user_id::text AS user_id,
-                split_part(email, '@', 1) AS name,
-                email,
-                role::text AS role,
-                status::text AS status
-            FROM account_members
-            WHERE account_id = $1 AND status <> 'removed'::member_status
-            ORDER BY created_at ASC
+                m.id::text AS id,
+                m.user_id::text AS user_id,
+                split_part(m.email, '@', 1) AS name,
+                m.email,
+                m.role::text AS role,
+                m.status::text AS status,
+                m.created_at AS joined_at,
+                invite_match.id::text AS invite_id,
+                invite_match.created_by_user_id::text AS invited_by_user_id,
+                invite_match.accepted_at AS invite_accepted_at,
+                (invite_match.id IS NOT NULL) AS joined_via_invite
+            FROM account_members m
+            LEFT JOIN LATERAL (
+                SELECT i.id, i.created_by_user_id, i.accepted_at
+                FROM invites i
+                WHERE i.account_id = m.account_id
+                  AND i.accepted_by_user_id = m.user_id
+                  AND i.status = 'accepted'::invite_status
+                ORDER BY i.accepted_at DESC NULLS LAST, i.created_at DESC
+                LIMIT 1
+            ) invite_match ON true
+            WHERE m.account_id = $1 AND m.status <> 'removed'::member_status
+            ORDER BY m.created_at ASC
             """,
             _uuid(account_id),
         )
         return [dict(row) for row in rows]
-
     async def account_summary(self, account_id: str) -> dict[str, Any] | None:
         row = await self.conn.fetchrow(
             """
@@ -421,3 +469,5 @@ class AccountRepository:
         if row is None:
             return None
         return await self.account_summary(account_id)
+
+
