@@ -69,3 +69,5 @@ async def account_overview(account_id: str, principal: Principal = Depends(curre
     scoped_account(principal, account_id)
     data = await AggregatorClient(get_settings()).account_overview(account_id, principal)
     return AccountOverviewResponse(**data)
+
+
