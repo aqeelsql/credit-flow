@@ -19,10 +19,13 @@ from app.models import AccountType
 from app.repository import AccountRepository
 from app.schemas import (
     AcceptInviteRequest,
+    AdminAccountListResponse,
     AccountResponse,
     AccountSummaryResponse,
     CreateAccountRequest,
     InternalCreateIndividualRequest,
+    InternalAcceptInviteRequest,
+    InternalValidateInviteRequest,
     InviteMemberRequest,
     InviteMemberResponse,
     MembershipListResponse,
@@ -135,6 +138,7 @@ async def create_account(
             principal.email or f"user-{principal.user_id}@creditflow.local",
             payload.type,
             payload.name,
+            principal.email.split("@", 1)[0] if principal.email else None,
         )
     await publish_or_log(event_bus, "account.created", account_event(row, principal.user_id))
     return account_response(row)
@@ -278,6 +282,22 @@ async def internal_memberships(
     return MembershipListResponse(memberships=[membership_response(row) for row in rows])
 
 
+@router.get("/internal/accounts", response_model=AdminAccountListResponse, dependencies=[Depends(require_internal)])
+async def internal_admin_accounts(
+    q: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    settings: Settings = Depends(settings_dep),
+    db: Database = Depends(database_dep),
+) -> AdminAccountListResponse:
+    safe_limit = max(1, min(limit, 250))
+    safe_offset = max(0, offset)
+    async with db.acquire() as conn:
+        repo = AccountRepository(conn, settings)
+        rows = await repo.list_accounts_for_admin(q=q, limit=safe_limit, offset=safe_offset)
+    return AdminAccountListResponse(items=rows)
+
+
 @router.post("/internal/users/{user_id}/individual-account", response_model=AccountResponse, dependencies=[Depends(require_internal)])
 async def internal_create_individual_account(
     user_id: str,
@@ -288,7 +308,43 @@ async def internal_create_individual_account(
 ) -> AccountResponse:
     async with db.transaction() as conn:
         repo = AccountRepository(conn, settings)
-        row = await repo.ensure_individual_account(user_id, payload.email, payload.account_name)
+        row = await repo.ensure_individual_account(user_id, payload.email, payload.account_name, payload.name)
     if row.get("_created"):
         await publish_or_log(event_bus, "account.created", account_event(row, user_id))
+    return account_response(row)
+
+
+@router.post("/internal/invites/validate", dependencies=[Depends(require_internal)])
+async def internal_validate_invite(
+    payload: InternalValidateInviteRequest,
+    settings: Settings = Depends(settings_dep),
+    db: Database = Depends(database_dep),
+) -> dict[str, Any]:
+    async with db.transaction() as conn:
+        repo = AccountRepository(conn, settings)
+        invite = await repo.validate_invite_for_email(payload.code, str(payload.email))
+    return {"status": "valid", **invite, "expires_at": invite["expires_at"].isoformat()}
+
+
+@router.post("/internal/invites/accept", response_model=AccountResponse, dependencies=[Depends(require_internal)])
+async def internal_accept_invite(
+    payload: InternalAcceptInviteRequest,
+    settings: Settings = Depends(settings_dep),
+    db: Database = Depends(database_dep),
+    event_bus: EventBus = Depends(event_bus_dep),
+) -> AccountResponse:
+    async with db.transaction() as conn:
+        repo = AccountRepository(conn, settings)
+        row = await repo.accept_invite(payload.code, payload.user_id, str(payload.email), payload.name)
+    await publish_or_log(
+        event_bus,
+        "member.joined",
+        {
+            "account_id": row["id"],
+            "user_id": payload.user_id,
+            "member_id": row.get("member_id"),
+            "invite_id": row.get("invite_id"),
+            "role": row["role"],
+        },
+    )
     return account_response(row)

@@ -28,8 +28,17 @@ async def send_test_email(
 ) -> TestEmailResponse:
     event_id = f"notification.test:{uuid.uuid4()}"
     subject = "CreditFlow notification test"
-    html = f"<h2>CreditFlow notification test</h2><p>Your notification service can reach {email_client.provider.upper()}.</p>"
-    text = f"CreditFlow notification test. Your notification service can reach {email_client.provider.upper()}."
+html = (
+    f"<h2>CreditFlow notification test</h2>"
+    f"<p>Your notification service can reach "
+    f"{email_client.provider.upper()}.</p>"
+)
+
+text = (
+    f"CreditFlow notification test. "
+    f"Your notification service can reach "
+    f"{email_client.provider.upper()}."
+)
     provider_message_id = None
     try:
         provider_message_id = await email_client.send_email(to=payload.recipient, subject=subject, html=html, text=text)

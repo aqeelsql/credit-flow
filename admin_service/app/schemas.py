@@ -49,3 +49,21 @@ class AccountOverviewResponse(BaseModel):
     usage: dict[str, Any] | None = None
     members: list[dict[str, Any]] | None = None
     errors: dict[str, str] = {}
+
+
+class AccountDirectoryItem(BaseModel):
+    id: str
+    name: str
+    type: str
+    plan: str
+    credits: int
+    team_size: int
+    owner_name: str | None = None
+    owner_email: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class AccountDirectoryResponse(BaseModel):
+    items: list[AccountDirectoryItem]
+    errors: dict[str, str] = {}
