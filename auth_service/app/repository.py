@@ -87,6 +87,21 @@ class AuthRepository:
             raise AuthError("signup_failed", "Unable to create the user account.", 500)
         return dict(user)
 
+    async def upsert_credential(self, user_id: str, password_hash: str) -> None:
+        now = utcnow()
+        await self.conn.execute(
+            """
+            INSERT INTO credentials (id, user_id, password_hash, password_changed_at, created_at)
+            VALUES ($1, $2, $3, $4, $4)
+            ON CONFLICT (user_id)
+            DO UPDATE SET password_hash = EXCLUDED.password_hash, password_changed_at = EXCLUDED.password_changed_at
+            """,
+            uuid.uuid4(),
+            _uuid(user_id),
+            password_hash,
+            now,
+        )
+
     async def activate_user(self, user_id: str) -> dict[str, Any]:
         now = utcnow()
         user = await self.conn.fetchrow(
@@ -366,6 +381,7 @@ class AuthRepository:
         )
         revoked = await self.revoke_all_refresh_tokens_for_user(user["id"])
         return user, revoked
+
 
 
 

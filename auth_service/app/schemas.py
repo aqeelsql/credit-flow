@@ -5,6 +5,7 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     account_name: str | None = Field(default=None, max_length=180)
+    invite_code: str | None = Field(default=None, min_length=16)
 
 
 class SignupResponse(BaseModel):
@@ -12,6 +13,11 @@ class SignupResponse(BaseModel):
     user_id: str
     account_id: str | None = None
     message: str
+    access_token: str | None = None
+    token_type: str = "Bearer"
+    expires_in: int | None = None
+    role: str | None = None
+    jti: str | None = None
 
 
 class VerifyEmailRequest(BaseModel):

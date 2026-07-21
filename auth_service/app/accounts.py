@@ -46,6 +46,32 @@ async def create_individual_account(settings: Settings, user_id: str, email: str
         raise AuthError("user_tenant_service_unavailable", "User / Tenant service is unavailable.", 503) from exc
 
 
+async def accept_invite_for_user(settings: Settings, user_id: str, email: str, invite_code: str) -> dict:
+    if not settings.user_tenant_service_url:
+        raise AuthError("user_tenant_service_unavailable", "User / Tenant service is required for invite signup.", 503)
+    try:
+        async with httpx.AsyncClient(timeout=settings.user_tenant_service_timeout_seconds) as client:
+            response = await client.post(
+                f"{settings.user_tenant_service_url.rstrip('/')}/internal/invites/accept",
+                headers=_headers(settings),
+                json={"code": invite_code, "user_id": user_id, "email": email},
+            )
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as exc:
+        try:
+            body = exc.response.json()
+            detail = body.get("error", {}) if isinstance(body, dict) else {}
+            message = detail.get("message") if isinstance(detail, dict) else None
+            code = detail.get("code") if isinstance(detail, dict) else None
+        except ValueError:
+            message = None
+            code = None
+        raise AuthError(str(code or "invite_accept_failed"), str(message or "Invite code and email did not match."), exc.response.status_code) from exc
+    except httpx.RequestError as exc:
+        raise AuthError("user_tenant_service_unavailable", "User / Tenant service is unavailable.", 503) from exc
+
+
 async def resolve_account_role(settings: Settings, user_id: str, requested_account_id: str | None = None) -> tuple[str, str]:
     if not settings.user_tenant_service_url:
         return requested_account_id or settings.default_account_id, settings.default_role
