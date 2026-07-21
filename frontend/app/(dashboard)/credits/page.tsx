@@ -7,7 +7,8 @@ import { useAuth } from "@/lib/auth-context";
 
 type Balance = { balance: number };
 type CreditPackage = { key: string; credits: number; price_cents: number; currency: string };
-type CreditCheckout = { checkout_url?: string | null; package_key: string; status: string };
+type CreditCheckout = { checkout_url?: string | null; session_id?: string | null; package_key: string; status: string };
+type CreditCheckoutSync = { status: string; credits: number; amount_paid: number; currency: string };
 
 async function api<T>(path: string, token: string | null, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
@@ -67,9 +68,27 @@ function CreditsPurchase() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("checkout") === "cancelled") setNotice("Credit checkout was cancelled. No payment was made.");
+    const checkout = params.get("checkout");
+    const sessionId = params.get("session_id");
+    if (checkout === "cancelled") {
+      setNotice("Credit checkout was cancelled. No payment was made.");
+      void loadCredits();
+      return;
+    }
+    if (checkout === "success" && sessionId && accessToken) {
+      setNotice("Finalizing your credit purchase...");
+      api<CreditCheckoutSync>(`/api/billing/checkout/credits/${encodeURIComponent(sessionId)}/sync`, accessToken, { method: "POST" })
+        .then((result) => {
+          setNotice(`Credit purchase synced. Added ${result.credits.toLocaleString()} credits to your account.`);
+          window.history.replaceState(null, "", "/credits?checkout=success");
+        })
+        .catch((err) => setError(err instanceof Error ? err.message : "Unable to sync credit purchase."))
+        .finally(() => void loadCredits());
+      return;
+    }
+    if (checkout === "success") setNotice("Credit checkout completed. Refreshing your balance...");
     void loadCredits();
-  }, [loadCredits]);
+  }, [accessToken, loadCredits]);
 
   const unitPriceCents = (item: CreditPackage) => item.price_cents / item.credits;
   const selectedAmount = (item: CreditPackage) => Math.max(1, Math.floor(selectedCredits[item.key] || item.credits));

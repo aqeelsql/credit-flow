@@ -51,6 +51,28 @@ def build_email(event_type: str, payload: dict[str, Any], settings: Settings) ->
                 "</div>"
             ),
         }
+    if event_type == "user.password_reset_requested":
+        otp = str(payload.get("otp") or payload.get("code") or "")
+        expires_seconds = int(payload.get("otp_expires_in") or payload.get("expires_in") or 600)
+        expires_minutes = max(1, round(expires_seconds / 60))
+        reset_url = f"{settings.frontend_base_url.rstrip('/')}/forgot-password?email={payload.get('email', '')}"
+        safe_otp = escape(otp, quote=True)
+        safe_reset_url = escape(reset_url, quote=True)
+        return {
+            "notification_type": "password_reset",
+            "subject": "Reset your CreditFlow password",
+            "text": f"Use this one-time code to reset your CreditFlow password: {otp}. It expires in {expires_minutes} minutes.",
+            "html": (
+                "<div style='font-family:Inter,Arial,sans-serif;line-height:1.6;color:#0f172a'>"
+                "<h2 style='margin:0 0 12px'>Reset your CreditFlow password</h2>"
+                "<p>Use this one-time code to reset your password. It can be used once.</p>"
+                f"<p style='font-size:28px;letter-spacing:8px;font-weight:800;background:#eef6ff;color:#1d4ed8;padding:14px 18px;border-radius:12px;display:inline-block'>{safe_otp}</p>"
+                f"<p style='font-size:13px;color:#64748b'>This code expires in {expires_minutes} minutes.</p>"
+                f"<p><a href='{safe_reset_url}' style='display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700'>Open reset page</a></p>"
+                "<p style='font-size:13px;color:#64748b'>If you did not request this, you can ignore this email.</p>"
+                "</div>"
+            ),
+        }
     if event_type == "invoice.paid":
         amount = payload.get("amount_paid") or payload.get("amount") or ""
         currency = str(payload.get("currency") or "usd").upper()
@@ -91,3 +113,5 @@ def build_email(event_type: str, payload: dict[str, Any], settings: Settings) ->
         threshold = payload.get("threshold") or payload.get("percentage") or payload.get("threshold_percent") or ""
         return {"notification_type": "usage_threshold", "subject": "CreditFlow usage quota warning", "text": f"Your AI usage has reached {threshold}% of quota.", "html": f"<h2>Usage quota warning</h2><p>Your AI usage has reached {threshold}% of quota.</p>"}
     return {"notification_type": "generic_event", "subject": f"CreditFlow event: {event_type}", "text": str(payload), "html": f"<pre>{payload}</pre>"}
+
+

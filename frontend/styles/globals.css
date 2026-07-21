@@ -3773,6 +3773,11 @@ select:focus {
   color: var(--color-muted);
 }
 
+.data-table tbody tr.selected-row {
+  background: rgba(47, 128, 237, 0.1);
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
 .spin {
   animation: creditflow-spin 0.85s linear infinite;
 }

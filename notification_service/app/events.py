@@ -14,6 +14,7 @@ EventHandler = Callable[[str, dict[str, Any], aio_pika.IncomingMessage], Awaitab
 
 EVENT_TOPICS = [
     "user.registered",
+    "user.password_reset_requested",
     "invoice.paid",
     "payment.failed",
     "member.invited",
@@ -121,3 +122,4 @@ class NotificationEventBus:
         self._publish_exchange = None
         self._channel = None
         self._connection = None
+

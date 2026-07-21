@@ -7,69 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import type { AccountRole } from "@/lib/types";
 
 type BalanceResponse = { balance: number; low_balance_threshold?: number; is_low_balance?: boolean };
-type TeamRow = { id: string; user_id?: string | null; name?: string; email: string; role: AccountRole; status: string; joined_via_invite?: boolean; invite_id?: string | null; invited_by_user_id?: string | null; invite_accepted_at?: string | null };
-type DraftItem = {
-  id: string;
-  title: string;
-  body: string;
-  prompt?: string | null;
-  status?: string;
-  created_by_user_id?: string | null;
-  source_generation_job_id?: string | null;
-  created_at?: string;
-  updated_at?: string;
-};
-type DraftListResponse = { items: DraftItem[] };
-type CreditLedgerEntry = {
-  id: string;
-  account_id: string;
-  amount: number;
-  reason: string;
-  source_event_id?: string | null;
-  metadata?: Record<string, unknown> | null;
-  created_at: string;
-};
-
-type MemberUsage = {
-  key: string;
-  name: string;
-  email: string;
-  role: string;
-  creditsUsed: number;
-  generations: number;
-  lastActivity?: string;
-};
-
-type Recurrence = "none" | "daily" | "weekly" | "monthly";
-type ScheduledPost = {
-  id: string;
-  content_id: string;
-  content_title: string;
-  publish_at: string;
-  timezone: string;
-  recurrence: Recurrence;
-  status: string;
-};
-
-const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-
-function defaultScheduleDate() {
-  const next = new Date();
-  next.setDate(next.getDate() + 1);
-  next.setHours(9, 0, 0, 0);
-  return next;
-}
-
-function toDateInputValue(value: Date) {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  const day = String(value.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function toTimeInputValue(value: Date) {
-  return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
-}
+type CreditTransaction = { id: string; amount: number; reason: string; source_event_id?: string | null; metadata?: Record<string, unknown>; created_at: string };
 
 async function readError(response: Response) {
   try {
@@ -115,16 +53,7 @@ export default function DashboardPage() {
 function OwnerDashboard() {
   const { activeAccount, accessToken, session } = useAuth();
   const [balance, setBalance] = useState<number | null>(null);
-  const [teamMembers, setTeamMembers] = useState<TeamRow[]>([]);
-  const [contentItems, setContentItems] = useState<DraftItem[]>([]);
-  const [ledgerRows, setLedgerRows] = useState<CreditLedgerEntry[]>([]);
-  const [reviewItem, setReviewItem] = useState<DraftItem | null>(null);
-  const [scheduleDate, setScheduleDate] = useState(() => toDateInputValue(defaultScheduleDate()));
-  const [scheduleTime, setScheduleTime] = useState(() => toTimeInputValue(defaultScheduleDate()));
-  const [recurrence, setRecurrence] = useState<Recurrence>("none");
-  const [isLoading, setIsLoading] = useState(false);
-  const [isActionBusy, setIsActionBusy] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [purchases, setPurchases] = useState<CreditTransaction[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -157,16 +86,18 @@ function OwnerDashboard() {
   }, [accessToken, activeAccount?.id]);
 
   useEffect(() => {
-    void loadDashboard();
-  }, [loadDashboard]);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => void loadDashboard(), 15000);
-    const onFocus = () => void loadDashboard();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("focus", onFocus);
+    if (!accessToken) return;
+    const load = async () => {
+      setError(null);
+      const response = await fetch("/api/credits/balance", { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" });
+      if (!response.ok) throw new Error(await readError(response));
+      const data = (await response.json()) as BalanceResponse;
+      setBalance(data.balance);
+      const txResponse = await fetch("/api/credits/transactions?limit=10", { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" });
+      if (txResponse.ok) {
+        const transactions = (await txResponse.json()) as CreditTransaction[];
+        setPurchases(transactions.filter((item) => item.amount > 0 && item.reason === "purchase").slice(0, 5));
+      }
     };
   }, [loadDashboard]);
 
@@ -337,23 +268,13 @@ function OwnerDashboard() {
 
       <div className="admin-grid with-top-gap">
         <article className="panel">
-          <div className="panel-header"><h2>Team AI usage</h2><Sparkles size={20} color="var(--color-primary)" aria-hidden="true" /></div>
-          {memberUsage.length ? (
+          <div className="panel-header"><h2>Recent credit purchases</h2><span className="status-badge neutral">{purchases.length} shown</span></div>
+          {purchases.length ? (
             <table className="data-table">
-              <thead><tr><th>Member</th><th>Role</th><th>Generations</th><th>Credits/tokens used</th><th>Last activity</th></tr></thead>
-              <tbody>
-                {memberUsage.map((row) => (
-                  <tr key={row.key}>
-                    <td><strong>{row.name}</strong><br /><span className="muted">{row.email}</span></td>
-                    <td>{row.role}</td>
-                    <td>{row.generations.toLocaleString()}</td>
-                    <td>{row.creditsUsed.toLocaleString()}</td>
-                    <td>{row.lastActivity ? new Date(row.lastActivity).toLocaleString() : "No AI usage yet"}</td>
-                  </tr>
-                ))}
-              </tbody>
+              <thead><tr><th>Credits</th><th>Package</th><th>Date</th></tr></thead>
+              <tbody>{purchases.map((item) => <tr key={item.id}><td className="mono">+{item.amount.toLocaleString()}</td><td>{String(item.metadata?.package_key ?? "Stripe checkout")}</td><td>{new Date(item.created_at).toLocaleString()}</td></tr>)}</tbody>
             </table>
-          ) : <div className="empty-state">No team usage recorded yet.</div>}
+          ) : <p>No credit purchases recorded yet. Completed Stripe purchases will appear here after the webhook is processed.</p>}
         </article>
 
         <article className="panel">
