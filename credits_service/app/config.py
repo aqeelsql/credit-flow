@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql://creditflow:creditflow@localhost:5432/creditflow"
     database_schema: str = Field(default="credits", validation_alias=credits_env("DATABASE_SCHEMA"))
-    internal_service_token: str = Field(default="", repr=False)
+    internal_service_token: str = Field(default="", validation_alias=AliasChoices("CREDITS_INTERNAL_SERVICE_TOKEN", "INTERNAL_SERVICE_TOKEN", "ADMIN_INTERNAL_SERVICE_TOKEN"), repr=False)
 
     rabbitmq_url: str = "amqp://guest:guest@localhost/"
     rabbitmq_exchange: str = "creditflow.events"
