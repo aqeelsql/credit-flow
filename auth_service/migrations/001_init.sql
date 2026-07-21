@@ -17,12 +17,15 @@ END $$;
 
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(180),
     email VARCHAR(320) NOT NULL UNIQUE,
     status user_status NOT NULL DEFAULT 'pending_verification',
     email_verified_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS name VARCHAR(180);
 
 CREATE INDEX IF NOT EXISTS ix_users_email ON users (email);
 
