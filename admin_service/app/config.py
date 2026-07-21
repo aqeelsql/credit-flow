@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     credits_service_url: str = Field(default="http://localhost:8007", validation_alias=admin_env("CREDITS_SERVICE_URL"))
     usage_service_url: str = Field(default="http://localhost:8009", validation_alias=admin_env("USAGE_SERVICE_URL"))
     user_tenant_service_url: str = Field(default="http://localhost:8002", validation_alias=AliasChoices("ADMIN_USER_TENANT_SERVICE_URL", "USER_TENANT_SERVICE_URL", "ACCOUNT_SERVICE_URL"))
+    internal_service_token: str = Field(default="", validation_alias=AliasChoices("ADMIN_INTERNAL_SERVICE_TOKEN", "INTERNAL_SERVICE_TOKEN"), repr=False)
     downstream_timeout_seconds: float = Field(default=12.0, validation_alias=admin_env("DOWNSTREAM_TIMEOUT_SECONDS"))
 
     @property
