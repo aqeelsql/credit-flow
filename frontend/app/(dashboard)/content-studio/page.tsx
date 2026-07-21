@@ -1,6 +1,11 @@
 import { ContentStudio } from "@/components/ContentStudio/ContentStudio";
+import { RouteGuard } from "@/components/RouteGuard/RouteGuard";
 
 export default function ContentStudioPage() {
-  return <ContentStudio />;
+  return (
+    <RouteGuard allowedRoles={["Owner", "TenantAdmin", "Member"]}>
+      <ContentStudio />
+    </RouteGuard>
+  );
 }
 

@@ -32,6 +32,24 @@ export type AdminAccountOverview = {
   errors?: Record<string, string>;
 };
 
+export type AdminAccountDirectoryItem = {
+  id: string;
+  name: string;
+  type: string;
+  plan: string;
+  credits: number;
+  team_size: number;
+  owner_name?: string | null;
+  owner_email?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdminAccountDirectoryResponse = {
+  items: AdminAccountDirectoryItem[];
+  errors?: Record<string, string>;
+};
+
 export class AdminApiError extends Error {
   status: number;
 

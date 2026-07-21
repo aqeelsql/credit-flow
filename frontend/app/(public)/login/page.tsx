@@ -21,7 +21,7 @@ export default function LoginPage() {
     try {
       const actualRole: AccountRole = await login(email, password);
       const next = new URLSearchParams(window.location.search).get("next");
-      router.push(next ?? (actualRole === "SuperAdmin" ? "/admin/directory" : "/dashboard"));
+      router.push(next ?? (actualRole === "SuperAdmin" ? "/admin/directory" : actualRole === "Member" ? "/content-studio" : "/dashboard"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to enter the app.");
     } finally {
