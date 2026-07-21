@@ -45,7 +45,7 @@ type AuthContextValue = {
   accounts: Account[];
   activeAccount: Account | null;
   login: (email: string, password: string, preferredRole?: AccountRole) => Promise<AccountRole>;
-  signup: (email: string, password: string, accountName?: string) => Promise<SignupResponse>;
+  signup: (name: string, email: string, password: string, accountName?: string, inviteCode?: string) => Promise<SignupResponse>;
   logout: () => void;
   switchAccount: (accountId: string) => Promise<void>;
   createAccount: (type: Exclude<AccountType, "platform">, name: string) => Promise<void>;
@@ -295,10 +295,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [loadAccounts, setToken]
   );
 
-  const signup = useCallback(async (email: string, password: string, accountName?: string) => {
+  const signup = useCallback(async (name: string, email: string, password: string, accountName?: string, inviteCode?: string) => {
     return appRequest<SignupResponse>("/api/auth/signup", null, {
       method: "POST",
-      body: JSON.stringify({ email: email.trim(), password, account_name: accountName || undefined })
+      body: JSON.stringify({ name: name.trim(), email: email.trim(), password, account_name: accountName || undefined, invite_code: inviteCode || undefined })
     });
   }, []);
 
