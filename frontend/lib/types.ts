@@ -23,10 +23,16 @@ export type SessionPayload = {
 
 export type TeamMember = {
   id: string;
+  user_id?: string | null;
   name: string;
   email: string;
   role: AccountRole;
   status: "Active" | "Invited";
+  joinedAt?: string | null;
+  inviteId?: string | null;
+  invitedByUserId?: string | null;
+  inviteAcceptedAt?: string | null;
+  joinedViaInvite?: boolean;
 };
 
 export type Invoice = {
@@ -86,5 +92,7 @@ export type AuditRow = {
   event: string;
   timestamp: string;
 };
+
+
 
 

@@ -1,51 +1,61 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Users } from "lucide-react";
-import { adminFetch, numberFromRecord, stringFromRecord, type AdminAccountOverview, type AdminAuditResponse } from "@/lib/admin-api";
+import { RefreshCw, Search, Users } from "lucide-react";
+import { adminFetch, compactId, numberFromRecord, stringFromRecord, type AdminAccountOverview, type AdminAccountRow } from "@/lib/admin-api";
 import { useAuth } from "@/lib/auth-context";
 
 export default function DirectoryPage() {
   const { accessToken } = useAuth();
   const [query, setQuery] = useState("");
-  const [discoveredAccounts, setDiscoveredAccounts] = useState<string[]>([]);
+  const [accounts, setAccounts] = useState<AdminAccountRow[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState("");
   const [overview, setOverview] = useState<AdminAccountOverview | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [loadingOverview, setLoadingOverview] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const loadAccounts = useCallback(async () => {
+    setLoadingAccounts(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ limit: "100" });
+      if (query.trim()) params.set("q", query.trim());
+      const rows = await adminFetch<AdminAccountRow[]>(`/accounts?${params.toString()}`, accessToken);
+      setAccounts(rows);
+      if (!selectedAccountId && rows[0]?.id) setSelectedAccountId(rows[0].id);
+    } catch (err) {
+      setAccounts([]);
+      setError(err instanceof Error ? err.message : "Unable to load platform accounts.");
+    } finally {
+      setLoadingAccounts(false);
+    }
+  }, [accessToken, query, selectedAccountId]);
+
   useEffect(() => {
-    const loadDiscovered = async () => {
-      try {
-        const audit = await adminFetch<AdminAuditResponse>("/audit-log?limit=200", accessToken);
-        const ids = Array.from(new Set((audit.items ?? []).map((item) => item.account_id).filter((id): id is string => !!id)));
-        setDiscoveredAccounts(ids.slice(0, 20));
-      } catch {
-        setDiscoveredAccounts([]);
-      }
-    };
-    void loadDiscovered();
-  }, [accessToken]);
+    void loadAccounts();
+  }, [loadAccounts]);
 
   const loadOverview = useCallback(
-    async (accountId = query) => {
+    async (accountId = selectedAccountId) => {
       const nextAccountId = accountId.trim();
       if (!nextAccountId) {
-        setError("Enter an account_id to inspect.");
+        setError("Select an account to inspect.");
         return;
       }
-      setLoading(true);
+      setLoadingOverview(true);
       setError(null);
       try {
-        setQuery(nextAccountId);
+        setSelectedAccountId(nextAccountId);
         setOverview(await adminFetch<AdminAccountOverview>(`/accounts/${encodeURIComponent(nextAccountId)}/overview`, accessToken));
       } catch (err) {
         setOverview(null);
         setError(err instanceof Error ? err.message : "Unable to load account overview.");
       } finally {
-        setLoading(false);
+        setLoadingOverview(false);
       }
     },
-    [accessToken, query]
+    [accessToken, selectedAccountId]
   );
 
   const metrics = useMemo(() => {
@@ -59,39 +69,54 @@ export default function DirectoryPage() {
     <section className="page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Account operations</h1>
-          <p className="page-subtitle">Look up an account and aggregate plan, credits, usage, and member details through read-only service calls.</p>
+          <h1 className="page-title">Cross-account directory</h1>
+          <p className="page-subtitle">Browse every registered account and inspect plan, credits, usage, and active members.</p>
         </div>
+        <button className="button secondary" type="button" onClick={() => void loadAccounts()} disabled={loadingAccounts}>
+          <RefreshCw size={15} aria-hidden="true" />
+          Refresh
+        </button>
       </div>
 
       <div className="panel search-row">
         <div className="field">
-          <label htmlFor="directory-search">Account ID</label>
-          <input id="directory-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Paste account_id" />
+          <label htmlFor="directory-search">Search accounts</label>
+          <input id="directory-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Account name, owner email, or account_id" />
         </div>
-        <button className="button primary" type="button" onClick={() => void loadOverview()} disabled={loading}>
+        <button className="button primary" type="button" onClick={() => void loadAccounts()} disabled={loadingAccounts}>
           <Search size={16} aria-hidden="true" />
-          Inspect
+          Search
         </button>
       </div>
 
-      {discoveredAccounts.length ? (
-        <div className="panel with-top-gap">
-          <div className="panel-header">
-            <h2>Accounts seen in audit trail</h2>
-            <span className="status-badge neutral">{discoveredAccounts.length} discovered</span>
-          </div>
-          <div className="button-row compact">
-            {discoveredAccounts.map((accountId) => (
-              <button className="button ghost" type="button" key={accountId} onClick={() => void loadOverview(accountId)}>
-                {accountId}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
       {error ? <div className="danger-note with-top-gap">{error}</div> : null}
+
+      <div className="table-panel with-top-gap">
+        <div className="table-header">
+          <h2>Registered accounts</h2>
+          <span className="status-badge neutral">{loadingAccounts ? "Loading" : `${accounts.length} shown`}</span>
+        </div>
+        {accounts.length ? (
+          <table className="data-table">
+            <thead><tr><th>Account</th><th>Owner</th><th>Plan</th><th>Credits</th><th>AI usage</th><th>Members</th><th>Sync</th><th>Action</th></tr></thead>
+            <tbody>
+              {accounts.map((account) => (
+                <tr key={account.id}>
+                  <td><strong>{account.name}</strong><br /><span className="muted mono">{compactId(account.id, 14)}</span></td>
+                  <td>{account.owner_email ?? "Unknown"}</td>
+                  <td>{account.plan}</td>
+                  <td>{(account.credit_balance ?? account.credits).toLocaleString()}</td>
+                  <td>{account.team_size.toLocaleString()}</td>
+                  <td>{account.created_at ? new Date(account.created_at).toLocaleString() : "Unknown"}</td>
+                  <td><button className="button ghost" type="button" onClick={() => void loadOverview(account.id)} disabled={loadingOverview}>Inspect</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="empty-state">{loadingAccounts ? "Loading registered accounts..." : "No accounts found."}</div>
+        )}
+      </div>
 
       {overview ? (
         <>
@@ -120,14 +145,7 @@ export default function DirectoryPage() {
             </div>
             {overview.members?.length ? (
               <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>User</th>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
+                <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th></tr></thead>
                 <tbody>
                   {overview.members.map((member, index) => (
                     <tr key={String(member.id ?? member.user_id ?? index)}>
@@ -152,3 +170,4 @@ export default function DirectoryPage() {
     </section>
   );
 }
+

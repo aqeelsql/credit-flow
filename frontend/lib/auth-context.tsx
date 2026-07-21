@@ -11,6 +11,10 @@ type SignupResponse = {
   user_id: string;
   account_id?: string | null;
   message: string;
+  access_token?: string | null;
+  expires_in?: number | null;
+  role?: AccountRole | null;
+  jti?: string | null;
 };
 
 type TokenResponse = {
@@ -45,7 +49,7 @@ type AuthContextValue = {
   accounts: Account[];
   activeAccount: Account | null;
   login: (email: string, password: string, preferredRole?: AccountRole) => Promise<AccountRole>;
-  signup: (email: string, password: string, accountName?: string) => Promise<SignupResponse>;
+  signup: (email: string, password: string, accountName?: string, inviteCode?: string) => Promise<SignupResponse>;
   logout: () => void;
   switchAccount: (accountId: string) => Promise<void>;
   createAccount: (type: Exclude<AccountType, "platform">, name: string) => Promise<void>;
@@ -295,12 +299,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [loadAccounts, setToken]
   );
 
-  const signup = useCallback(async (email: string, password: string, accountName?: string) => {
-    return appRequest<SignupResponse>("/api/auth/signup", null, {
+  const signup = useCallback(async (email: string, password: string, accountName?: string, inviteCode?: string) => {
+    const response = await appRequest<SignupResponse>("/api/auth/signup", null, {
       method: "POST",
-      body: JSON.stringify({ email: email.trim(), password, account_name: accountName || undefined })
+      body: JSON.stringify({ email: email.trim(), password, account_name: accountName || undefined, invite_code: inviteCode || undefined })
     });
-  }, []);
+    if (response.access_token) {
+      setToken(response.access_token);
+      await loadAccounts(response.access_token);
+    }
+    return response;
+  }, [loadAccounts, setToken]);
 
   const logout = useCallback(() => {
     void appRequest("/api/auth/logout", accessToken, { method: "POST", body: JSON.stringify({}) }).catch(() => undefined);
