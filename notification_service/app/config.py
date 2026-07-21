@@ -14,7 +14,7 @@ def notification_env(name: str) -> AliasChoices:
 
 
 def email_from_env() -> AliasChoices:
-    return AliasChoices("EMAIL_FROM", "NOTIFICATION_RESEND_FROM_EMAIL", "RESEND_FROM_EMAIL")
+    return AliasChoices("EMAIL_FROM", "NOTIFICATION_EMAIL_FROM")
 
 
 def frontend_url_env() -> AliasChoices:
@@ -41,10 +41,14 @@ class Settings(BaseSettings):
     retry_delay_ms: int = Field(default=30000, validation_alias=notification_env("RETRY_DELAY_MS"))
     max_retries: int = Field(default=3, validation_alias=notification_env("MAX_RETRIES"))
 
-    resend_api_key: str = Field(default="", repr=False, validation_alias=AliasChoices("RESEND_API_KEY", "NOTIFICATION_RESEND_API_KEY"))
-    resend_from_email: str = Field(default="CreditFlow <onboarding@resend.dev>", validation_alias=email_from_env())
-    resend_test_recipient: str = Field(default="", validation_alias=notification_env("RESEND_TEST_RECIPIENT"))
-    resend_api_url: str = Field(default="https://api.resend.com/emails", validation_alias=notification_env("RESEND_API_URL"))
+    email_from: str = Field(default="CreditFlow <no-reply@gmail.com>", validation_alias=email_from_env())
+    smtp_host: str = Field(default="smtp.gmail.com", validation_alias=AliasChoices("SMTP_HOST", "NOTIFICATION_SMTP_HOST"))
+    smtp_port: int = Field(default=587, validation_alias=AliasChoices("SMTP_PORT", "NOTIFICATION_SMTP_PORT"))
+    smtp_username: str = Field(default="", validation_alias=AliasChoices("SMTP_USERNAME", "NOTIFICATION_SMTP_USERNAME"))
+    smtp_password: str = Field(default="", repr=False, validation_alias=AliasChoices("SMTP_PASSWORD", "NOTIFICATION_SMTP_PASSWORD"))
+    smtp_use_tls: bool = Field(default=True, validation_alias=AliasChoices("SMTP_USE_TLS", "NOTIFICATION_SMTP_USE_TLS"))
+    smtp_use_ssl: bool = Field(default=False, validation_alias=AliasChoices("SMTP_USE_SSL", "NOTIFICATION_SMTP_USE_SSL"))
+    smtp_timeout_seconds: float = Field(default=20.0, validation_alias=notification_env("SMTP_TIMEOUT_SECONDS"))
     frontend_base_url: str = Field(default="http://localhost:3000", validation_alias=frontend_url_env())
     support_email: str = Field(default="support@creditflow.local", validation_alias=notification_env("SUPPORT_EMAIL"))
     ops_email: str = Field(default="ops@creditflow.local", validation_alias=notification_env("OPS_EMAIL"))
