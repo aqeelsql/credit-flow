@@ -69,6 +69,9 @@ export default function LoginPage() {
             />
           </div>
           {error ? <div className="danger-note">{error}</div> : null}
+          <div className="auth-inline-action">
+            <Link className="link" href="/forgot-password">Forgot password?</Link>
+          </div>
           <button className="button primary" type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Entering..." : "Continue"}
           </button>
@@ -83,3 +86,5 @@ export default function LoginPage() {
     </main>
   );
 }
+
+

@@ -1,8 +1,10 @@
 type StreamGenerationArgs = {
   prompt: string;
   accountId: string;
+  requestId?: string;
   accessToken: string | null;
   onToken: (token: string) => void;
+  onJobId?: (jobId: string) => void;
   onDone: () => void;
   onError: (message: string) => void;
 };
@@ -10,8 +12,10 @@ type StreamGenerationArgs = {
 export function streamAiGeneration({
   prompt,
   accountId,
+  requestId,
   accessToken,
   onToken,
+  onJobId,
   onDone,
   onError
 }: StreamGenerationArgs): () => void {
@@ -19,6 +23,7 @@ export function streamAiGeneration({
     account_id: accountId,
     prompt
   });
+  if (requestId) params.set("request_id", requestId);
 
   const controller = new AbortController();
   void consumeGenerationStream(
@@ -26,6 +31,7 @@ export function streamAiGeneration({
     accessToken,
     controller.signal,
     onToken,
+    onJobId,
     onDone,
     onError
   );
@@ -37,6 +43,7 @@ async function consumeGenerationStream(
   accessToken: string | null,
   signal: AbortSignal,
   onToken: (token: string) => void,
+  onJobId: ((jobId: string) => void) | undefined,
   onDone: () => void,
   onError: (message: string) => void
 ) {
@@ -74,10 +81,11 @@ async function consumeGenerationStream(
           break;
         }
         try {
-          const payload = JSON.parse(data) as { event?: string; token?: string; message?: string };
+          const payload = JSON.parse(data) as { event?: string; token?: string; message?: string; job_id?: string };
           if (payload.event === "error") {
             throw new Error(payload.message || "Text generation failed.");
           }
+          if (payload.job_id) onJobId?.(payload.job_id);
           if (payload.token) onToken(payload.token);
         } catch (error) {
           if (error instanceof SyntaxError) onToken(data);

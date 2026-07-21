@@ -530,6 +530,12 @@ img {
   box-shadow: 0 14px 32px rgba(37, 99, 235, 0.24);
 }
 
+
+.auth-inline-action {
+  display: flex;
+  justify-content: flex-end;
+  font-size: 0.92rem;
+}
 .form-grid {
   display: grid;
   gap: 1rem;
@@ -3821,3 +3827,60 @@ textarea:focus {
   border-color: rgba(47, 128, 237, 0.62);
   box-shadow: 0 0 0 4px rgba(47, 128, 237, 0.13), 0 12px 28px rgba(41, 92, 168, 0.08);
 }
+/* Compact credit summary used by Content Studio. */
+.credit-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin: 0.75rem 0 1.1rem;
+}
+
+.credit-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.35rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid rgba(59, 130, 246, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 30px rgba(37, 99, 235, 0.08);
+  color: #0f172a;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.credit-chip svg {
+  color: var(--color-primary);
+  flex: 0 0 auto;
+}
+
+.credit-chip span {
+  color: #64748b;
+}
+
+.credit-chip strong {
+  font-size: 1rem;
+  letter-spacing: -0.02em;
+}
+
+.review-post-body {
+  max-height: 22rem;
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 1.25rem;
+  background: rgba(255, 255, 255, 0.72);
+  white-space: pre-wrap;
+}
+
+.review-post-body h3 {
+  margin-bottom: 0.7rem;
+  font-size: 1.05rem;
+}
+
+.review-post-body p {
+  color: var(--color-ink-muted);
+  line-height: 1.7;
+}
+

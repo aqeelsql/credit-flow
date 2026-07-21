@@ -23,6 +23,34 @@ export type AdminAuditResponse = {
   items: AdminAuditItem[];
 };
 
+
+export type AdminAccountRow = {
+  id: string;
+  name: string;
+  type: string;
+  plan: string;
+  credits: number;
+  owner_user_id?: string | null;
+  owner_email?: string | null;
+  team_size: number;
+  credit_balance?: number | null;
+  low_balance_threshold?: number | null;
+  is_low_balance?: boolean | null;
+  tokens_used?: number | null;
+  usage_cost?: number | string | null;
+  usage_period?: string | null;
+  quota_tokens?: number | null;
+  sync_errors?: Record<string, string>;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type AdminPlatformOverview = {
+  accounts: AdminAccountRow[];
+  totals: Record<string, number>;
+  global_usage?: Record<string, unknown> | null;
+  errors?: Record<string, string>;
+};
 export type AdminAccountOverview = {
   account_id: string;
   account?: Record<string, unknown> | null;
@@ -107,3 +135,5 @@ export function stringFromRecord(record: Record<string, unknown> | null | undefi
   }
   return fallback;
 }
+
+
