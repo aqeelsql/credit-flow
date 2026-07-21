@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     resend_from_email: str = Field(default="CreditFlow <onboarding@resend.dev>", validation_alias=email_from_env())
     resend_test_recipient: str = Field(default="", validation_alias=notification_env("RESEND_TEST_RECIPIENT"))
     resend_api_url: str = Field(default="https://api.resend.com/emails", validation_alias=notification_env("RESEND_API_URL"))
+    smtp_host: str = Field(default="", validation_alias=AliasChoices("SMTP_HOST", "NOTIFICATION_SMTP_HOST"))
+    smtp_port: int = Field(default=587, validation_alias=AliasChoices("SMTP_PORT", "NOTIFICATION_SMTP_PORT"))
+    smtp_username: str = Field(default="", validation_alias=AliasChoices("SMTP_USERNAME", "NOTIFICATION_SMTP_USERNAME"))
+    smtp_password: str = Field(default="", repr=False, validation_alias=AliasChoices("SMTP_PASSWORD", "NOTIFICATION_SMTP_PASSWORD"))
+    smtp_use_tls: bool = Field(default=True, validation_alias=AliasChoices("SMTP_USE_TLS", "NOTIFICATION_SMTP_USE_TLS"))
+    smtp_use_ssl: bool = Field(default=False, validation_alias=AliasChoices("SMTP_USE_SSL", "NOTIFICATION_SMTP_USE_SSL"))
     frontend_base_url: str = Field(default="http://localhost:3000", validation_alias=frontend_url_env())
     support_email: str = Field(default="support@creditflow.local", validation_alias=notification_env("SUPPORT_EMAIL"))
     ops_email: str = Field(default="ops@creditflow.local", validation_alias=notification_env("OPS_EMAIL"))
@@ -57,6 +63,10 @@ class Settings(BaseSettings):
     @property
     def exchanges(self) -> list[str]:
         return [exchange.strip() for exchange in self.rabbitmq_exchanges.split(",") if exchange.strip()]
+
+    @property
+    def smtp_configured(self) -> bool:
+        return bool(self.smtp_host and self.smtp_username and self.smtp_password)
 
 
 @lru_cache
