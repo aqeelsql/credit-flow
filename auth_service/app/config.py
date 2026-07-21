@@ -1,7 +1,7 @@
-﻿from functools import lru_cache
+from functools import lru_cache
 from pathlib import Path
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     secure_cookie: bool = Field(default=False, validation_alias=auth_env("SECURE_COOKIE"))
     refresh_cookie_name: str = Field(default="cf_refresh_token", validation_alias=auth_env("REFRESH_COOKIE_NAME"))
 
+    @field_validator("jwt_algorithm", "jwt_issuer", "jwt_audience", mode="before")
+    @classmethod
+    def strip_jwt_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = str(value).strip()
+        return stripped or None
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
@@ -80,5 +87,6 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
 
 

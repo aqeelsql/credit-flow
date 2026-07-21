@@ -140,8 +140,10 @@ async def _issue_session(
 @router.post("/signup", response_model=SignupResponse, status_code=201)
 async def signup(
     payload: SignupRequest,
+    response: Response,
     settings: Settings = Depends(settings_dep),
     db: Database = Depends(database_dep),
+    redis_state: RedisState = Depends(redis_dep),
     publisher: EventPublisher = Depends(publisher_dep),
 ) -> SignupResponse:
     password_hash = hash_password(payload.password, settings.bcrypt_rounds)
@@ -182,6 +184,8 @@ async def signup(
                 raise AuthError("account_disabled", "This account cannot sign up again. Contact support.", 403)
             user = existing
             created = False
+            if invite_code:
+                await repo.upsert_credential(user["id"], password_hash)
         else:
             user = await repo.create_user_with_credential(payload.email, password_hash, name=display_name)
         await repo.create_email_verification_token(user["id"], sha256_hex(verification_token), expires_in(settings.email_verification_ttl_seconds))
@@ -388,6 +392,7 @@ async def forgot_password_request(
             publisher,
             "user.password_reset_requested",
             {
+                "event_id": f"user.password_reset_requested:{uuid.uuid4()}",
                 "user_id": user["id"],
                 "email": user["email"],
                 "otp": otp,
@@ -418,6 +423,10 @@ async def forgot_password_reset(
 @router.get("/me")
 async def me(principal: Principal = Depends(current_principal)) -> dict:
     return principal.model_dump()
+
+
+
+
 
 
 
