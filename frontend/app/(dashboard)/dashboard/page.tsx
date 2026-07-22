@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, CalendarClock, CheckCircle, Coins, FileText, RefreshCw, Send, Sparkles, Users, WalletCards, Zap } from "lucide-react";
@@ -266,7 +266,7 @@ function OwnerDashboard() {
         </article>
       </div>
 
-      <div className="admin-grid with-top-gap">
+      <div className="admin-grid dashboard-panels with-top-gap">
         <article className="panel">
           <div className="panel-header"><h2>Recent credit purchases</h2><span className="status-badge neutral">{purchases.length} shown</span></div>
           {purchases.length ? (

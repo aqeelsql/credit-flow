@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
@@ -287,7 +287,6 @@ export function SchedulerCalendar() {
           <button className="button primary" type="button" onClick={() => void scheduleSelectedDraft()} disabled={!selectedDraft || isBusy}>
             {selectedSchedule ? "Update schedule" : "Schedule selected post"}
           </button>
-          <div className="notice">You can also click a date or time slot on the calendar. Times use {timezone}.</div>
           <button className="button ghost" type="button" onClick={() => void reload()} disabled={isBusy}>Refresh</button>
           {selectedDraft ? (
             <div className="schedule-item">
@@ -340,3 +339,4 @@ export function SchedulerCalendar() {
     </section>
   );
 }
+

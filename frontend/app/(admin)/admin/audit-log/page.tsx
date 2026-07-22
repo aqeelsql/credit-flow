@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import { FileClock, RefreshCw } from "lucide-react";
@@ -96,3 +96,5 @@ export default function AuditLogPage() {
     </section>
   );
 }
+
+

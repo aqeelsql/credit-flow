@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { ExternalLink, FileText, Globe2, RefreshCw, Search, Sparkles, TimerReset } from "lucide-react";
@@ -562,7 +562,6 @@ export function ScraperResearch() {
             <div className="field"><label htmlFor="scrape-cadence">Cadence</label><select id="scrape-cadence" value={cadence} onChange={(event) => setCadence(event.target.value as Cadence)}><option value="once">Run once</option><option value="daily">Daily recurring</option><option value="weekly">Weekly recurring</option><option value="monthly">Monthly recurring</option></select></div>
             <button className="button primary" type="submit" disabled={isBusy || (scrapeMode === "topic" ? topic.trim().length < 3 : !targetUrl.trim())}><Search size={16} aria-hidden="true" />{cadence === "once" ? (scrapeMode === "topic" ? "Run topic research once" : "Scrape URL once") : "Save scheduled scraper"}</button>
             <button className="button secondary" type="button" onClick={openSavedScrapedData} disabled={isLoadingResearch || isLoadingDocuments}>Saved drafts</button>
-            <div className="notice">Choose topic research when the user only knows what they want to research, or URL mode when they already know the exact page/domain.</div>
           </form>
         </aside>
 
@@ -615,3 +614,4 @@ export function ScraperResearch() {
     </section>
   );
 }
+
