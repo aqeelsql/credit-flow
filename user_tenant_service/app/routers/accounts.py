@@ -1,7 +1,7 @@
 ﻿import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.config import Settings
 from app.database import Database
@@ -143,6 +143,22 @@ async def create_account(
     await publish_or_log(event_bus, "account.created", account_event(row, principal.user_id))
     return account_response(row)
 
+
+@router.get("/platform/accounts", response_model=AdminAccountListResponse)
+async def platform_accounts(
+    q: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=250),
+    offset: int = Query(default=0, ge=0),
+    principal: Principal = Depends(current_principal),
+    settings: Settings = Depends(settings_dep),
+    db: Database = Depends(database_dep),
+) -> AdminAccountListResponse:
+    if principal.role != "SuperAdmin":
+        raise AccountError("superadmin_required", "SuperAdmin role is required to browse platform accounts.", 403)
+    async with db.acquire() as conn:
+        repo = AccountRepository(conn, settings)
+        rows = await repo.list_accounts_for_admin(q=q, limit=limit, offset=offset)
+    return AdminAccountListResponse(items=rows)
 
 @router.get("/{account_id}/summary", response_model=AccountSummaryResponse)
 async def account_summary(
