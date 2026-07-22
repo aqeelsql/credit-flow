@@ -71,9 +71,9 @@ export default function BillingPage() {
     const searchParams = new URLSearchParams(window.location.search);
     const checkout = searchParams.get("checkout");
     const paymentMethodStatus = searchParams.get("payment_method");
-    if (checkout === "success") return "Payment completed. Stripe will send the invoice webhook shortly.";
+    if (checkout === "success") return "Payment completed. Your invoice will appear shortly.";
     if (checkout === "cancelled") return "Checkout was cancelled. No payment was made.";
-    if (paymentMethodStatus === "success") return "Payment method saved. Refreshing saved card details from Stripe.";
+    if (paymentMethodStatus === "success") return "Payment method saved. Refreshing card details.";
     if (paymentMethodStatus === "cancelled") return "Payment method setup was cancelled. No card was saved.";
     return null;
   }, []);
@@ -124,7 +124,7 @@ export default function BillingPage() {
       });
       const body = (await response.json().catch(() => ({}))) as { checkout_url?: string; error?: unknown; message?: string };
       if (!response.ok) throw new Error(readError(body, `Payment method setup failed (${response.status}).`));
-      if (!body.checkout_url) throw new Error("Stripe did not return a payment method setup URL.");
+      if (!body.checkout_url) throw new Error("Unable to open the secure card setup page.");
       window.location.href = body.checkout_url;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Payment method setup failed.");
@@ -172,7 +172,7 @@ export default function BillingPage() {
         <div className="page-header">
           <div>
             <h1 className="page-title">Billing and payments</h1>
-            <p className="page-subtitle">Choose a plan, enter card details in Stripe Checkout, and review paid invoices.</p>
+            <p className="page-subtitle">Manage your plan, saved payment method, and invoice history.</p>
           </div>
           <span className="status-badge neutral">{activeAccount?.name ?? "Active account"}</span>
         </div>
@@ -195,7 +195,7 @@ export default function BillingPage() {
               <p>{plan.detail}</p>
               <button className={plan.key === "free" ? "button secondary" : "button primary"} type="button" onClick={() => startCheckout(plan.key)} disabled={busyPlan !== null}>
                 {busyPlan === plan.key ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <CreditCard size={16} aria-hidden="true" />}
-                {busyPlan === plan.key ? "Opening Stripe..." : plan.cta}
+                {busyPlan === plan.key ? "Opening checkout..." : plan.cta}
               </button>
             </article>
           ))}
@@ -214,10 +214,10 @@ export default function BillingPage() {
           ) : (
             <p>No saved card is available for this account.</p>
           )}
-          <p className="muted-text">Card details are collected and stored by Stripe. CreditFlow only receives safe payment method metadata.</p>
+          <p className="muted-text">Card details are handled securely by our payment provider.</p>
           <button className="button primary" type="button" onClick={savePaymentMethod} disabled={savingCard || loadingPaymentMethod}>
             {savingCard ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <CreditCard size={16} aria-hidden="true" />}
-            {paymentMethod ? "Update saved card" : "Save card with Stripe"}
+            {paymentMethod ? "Update saved card" : "Save card"}
           </button>
         </article>
 
@@ -269,3 +269,11 @@ export default function BillingPage() {
     </RouteGuard>
   );
 }
+
+
+
+
+
+
+
+
