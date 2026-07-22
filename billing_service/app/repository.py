@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 import asyncpg
+from app.errors import BillingError
 
 
 def _json(value: dict[str, Any] | None) -> str:
@@ -123,7 +124,66 @@ class BillingRepository:
         return dict(row) if row else None
 
     async def add_outbox_event(self, routing_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+        event_id = payload.get("event_id")
+        if event_id:
+            existing = await self.conn.fetchrow(
+                """
+                SELECT id::text AS id, routing_key, payload
+                FROM outbox_events
+                WHERE routing_key = $1 AND payload->>'event_id' = $2
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                routing_key,
+                str(event_id),
+            )
+            if existing is not None:
+                return dict(existing)
         row = await self.conn.fetchrow("INSERT INTO outbox_events (routing_key, payload, created_at) VALUES ($1, $2::jsonb, now()) RETURNING id::text AS id, routing_key, payload", routing_key, _json(payload))
+        return dict(row)
+
+    async def upsert_credit_checkout_invoice(self, *, account_id: str, session: dict[str, Any], event_id: str, raw_event: dict[str, Any]) -> dict[str, Any]:
+        row = await self.conn.fetchrow(
+            """
+            INSERT INTO invoices (
+                account_id,
+                stripe_invoice_id,
+                stripe_customer_id,
+                stripe_subscription_id,
+                amount_paid,
+                amount_due,
+                currency,
+                status,
+                hosted_invoice_url,
+                invoice_pdf,
+                stripe_event_id,
+                raw_event,
+                created_at,
+                updated_at
+            )
+            VALUES ($1, $2, $3, NULL, $4, 0, $5, $6, NULL, NULL, $7, $8::jsonb, now(), now())
+            ON CONFLICT (stripe_invoice_id) DO UPDATE SET
+                account_id = EXCLUDED.account_id,
+                stripe_customer_id = EXCLUDED.stripe_customer_id,
+                amount_paid = EXCLUDED.amount_paid,
+                currency = EXCLUDED.currency,
+                status = EXCLUDED.status,
+                stripe_event_id = EXCLUDED.stripe_event_id,
+                raw_event = EXCLUDED.raw_event,
+                updated_at = now()
+            RETURNING id::text AS id, account_id, stripe_invoice_id, stripe_customer_id, stripe_subscription_id,
+                amount_paid, amount_due, currency, status, hosted_invoice_url, invoice_pdf, stripe_event_id,
+                raw_event, created_at, updated_at
+            """,
+            account_id,
+            str(session.get("id")),
+            str(session.get("customer")) if session.get("customer") else None,
+            int(session.get("amount_total") or session.get("amount_subtotal") or 0),
+            str(session.get("currency") or "usd"),
+            "paid" if str(session.get("payment_status") or "").lower() == "paid" else str(session.get("status") or "received"),
+            event_id,
+            _json(raw_event),
+        )
         return dict(row)
 
     async def claim_outbox_batch(self, limit: int) -> list[dict[str, Any]]:
@@ -154,3 +214,92 @@ class BillingRepository:
     async def confirm_marketplace_escrow(self, account_id: str, listing_id: str, payment_intent_id: str | None) -> dict[str, Any]:
         row = await self.conn.fetchrow("INSERT INTO marketplace_escrow (account_id, listing_id, payment_intent_id, status, created_at) VALUES ($1, $2, $3, 'confirmed', now()) ON CONFLICT (account_id, listing_id) DO UPDATE SET payment_intent_id = COALESCE(EXCLUDED.payment_intent_id, marketplace_escrow.payment_intent_id) RETURNING id::text AS id, account_id, listing_id, payment_intent_id, status", account_id, listing_id, payment_intent_id)
         return dict(row)
+
+    async def list_credit_packages(self, include_inactive: bool = False) -> list[dict[str, Any]]:
+        if include_inactive:
+            rows = await self.conn.fetch("""
+                SELECT id::text AS id, key, credits, price_cents, currency, active, created_by_user_id, created_at, updated_at
+                FROM credit_packages
+                ORDER BY active DESC, created_at DESC
+            """)
+        else:
+            rows = await self.conn.fetch("""
+                SELECT id::text AS id, key, credits, price_cents, currency, active, created_by_user_id, created_at, updated_at
+                FROM credit_packages
+                WHERE active = true
+                ORDER BY created_at DESC
+            """)
+        return [dict(row) for row in rows]
+
+    async def get_active_credit_package(self, package_key: str) -> dict[str, Any] | None:
+        row = await self.conn.fetchrow("""
+            SELECT id::text AS id, key, credits, price_cents, currency, active, created_by_user_id, created_at, updated_at
+            FROM credit_packages
+            WHERE key = $1 AND active = true
+        """, package_key)
+        return dict(row) if row else None
+
+    async def create_credit_package(self, *, key: str, credits: int, price_cents: int, currency: str, created_by_user_id: str | None) -> dict[str, Any]:
+        try:
+            row = await self.conn.fetchrow("""
+                INSERT INTO credit_packages (key, credits, price_cents, currency, active, created_by_user_id, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, true, $5, now(), now())
+                RETURNING id::text AS id, key, credits, price_cents, currency, active, created_by_user_id, created_at, updated_at
+            """, key, credits, price_cents, currency.lower(), created_by_user_id)
+        except asyncpg.UniqueViolationError as exc:
+            raise BillingError("credit_package_exists", "A credit package with this key already exists.", 409) from exc
+        return dict(row)
+
+    async def update_credit_package(self, package_id: str, *, credits: int, price_cents: int, currency: str, active: bool) -> dict[str, Any]:
+        row = await self.conn.fetchrow("""
+            UPDATE credit_packages
+            SET credits = $2, price_cents = $3, currency = $4, active = $5, updated_at = now()
+            WHERE id = $1::uuid
+            RETURNING id::text AS id, key, credits, price_cents, currency, active, created_by_user_id, created_at, updated_at
+        """, package_id, credits, price_cents, currency.lower(), active)
+        if row is None:
+            raise BillingError("credit_package_not_found", "Credit package was not found.", 404)
+        return dict(row)
+
+    async def deactivate_credit_package(self, package_id: str) -> dict[str, Any]:
+        row = await self.conn.fetchrow("""
+            UPDATE credit_packages
+            SET active = false, updated_at = now()
+            WHERE id = $1::uuid
+            RETURNING id::text AS id, key, credits, price_cents, currency, active, created_by_user_id, created_at, updated_at
+        """, package_id)
+        if row is None:
+            raise BillingError("credit_package_not_found", "Credit package was not found.", 404)
+        return dict(row)
+
+    async def list_credit_purchases(self, account_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+        clauses = ["routing_key = 'invoice.paid'", "payload->>'purpose' = 'credit_purchase'"]
+        params: list[Any] = []
+        if account_id:
+            params.append(account_id)
+            clauses.append(f"payload->>'account_id' = ${len(params)}")
+        params.append(limit)
+        where_sql = " AND ".join(clauses)
+        rows = await self.conn.fetch(
+            f"""
+            SELECT
+                id::text AS id,
+                payload->>'event_id' AS event_id,
+                payload->>'account_id' AS account_id,
+                payload->>'package_key' AS package_key,
+                COALESCE(NULLIF(payload->>'credits_delta', ''), NULLIF(payload->>'credits', ''), '0')::int AS credits,
+                COALESCE(NULLIF(payload->>'amount_paid', ''), '0')::bigint AS amount_paid,
+                COALESCE(payload->>'currency', 'usd') AS currency,
+                payload->>'stripe_checkout_session_id' AS stripe_checkout_session_id,
+                payload->>'payment_intent_id' AS payment_intent_id,
+                published,
+                created_at,
+                published_at
+            FROM outbox_events
+            WHERE {where_sql}
+            ORDER BY created_at DESC
+            LIMIT ${len(params)}
+            """,
+            *params,
+        )
+        return [dict(row) for row in rows]

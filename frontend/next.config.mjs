@@ -26,8 +26,8 @@ const nextConfig = {
   reactStrictMode: true,
   env: {
     NEXT_PUBLIC_API_BASE_URL: publicEnv("NEXT_PUBLIC_API_BASE_URL", ""),
-    NEXT_PUBLIC_USE_LOCAL_AUTH: publicEnv("NEXT_PUBLIC_USE_LOCAL_AUTH", "true"),
-    NEXT_PUBLIC_USE_MOCK_AI: publicEnv("NEXT_PUBLIC_USE_MOCK_AI", "true"),
+    NEXT_PUBLIC_USE_LOCAL_AUTH: publicEnv("NEXT_PUBLIC_USE_LOCAL_AUTH", "false"),
+    NEXT_PUBLIC_USE_MOCK_AI: publicEnv("NEXT_PUBLIC_USE_MOCK_AI", "false"),
     SCRAPER_SERVICE_URL: publicEnv("GATEWAY_SCRAPER_SERVICE_URL", "http://localhost:8012"),
     BILLING_SERVICE_URL: publicEnv("BILLING_SERVICE_URL", "http://localhost:8006")
   }

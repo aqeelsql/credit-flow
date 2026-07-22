@@ -61,6 +61,7 @@ class Database:
                 await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public"))
                 await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
                 await conn.run_sync(metadata.create_all)
+                await conn.execute(text(f'ALTER TABLE "{schema}".users ADD COLUMN IF NOT EXISTS name VARCHAR(180)'))
         finally:
             await engine.dispose()
 

@@ -22,7 +22,9 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     database_url: str = "postgresql://creditflow:creditflow@localhost:5432/creditflow"
     database_schema: str = Field(default="billing", validation_alias=billing_env("DATABASE_SCHEMA"))
-    internal_service_token: str = Field(default="", repr=False)
+    internal_service_token: str = Field(default="", validation_alias=AliasChoices("BILLING_INTERNAL_SERVICE_TOKEN", "INTERNAL_SERVICE_TOKEN", "ADMIN_INTERNAL_SERVICE_TOKEN"), repr=False)
+    credits_service_url: str = Field(default="http://localhost:8007", validation_alias=AliasChoices("BILLING_CREDITS_SERVICE_URL", "CREDITS_SERVICE_URL"))
+    credits_service_timeout_seconds: float = Field(default=8.0, validation_alias=billing_env("CREDITS_SERVICE_TIMEOUT_SECONDS"))
 
     rabbitmq_url: str = "amqp://guest:guest@localhost/"
     rabbitmq_exchange: str = Field(default="billing_events", validation_alias=AliasChoices("BILLING_RABBITMQ_EXCHANGE"))
@@ -44,6 +46,7 @@ class Settings(BaseSettings):
     starter_credits: int = Field(default=4000, validation_alias=billing_env("STARTER_CREDITS"))
     pro_credits: int = Field(default=25000, validation_alias=billing_env("PRO_CREDITS"))
     team_credits: int = Field(default=90000, validation_alias=billing_env("TEAM_CREDITS"))
+    credit_packages: str = Field(default="starter:5000:1900,pro:25000:7900,scale:100000:24900", validation_alias=billing_env("CREDIT_PACKAGES"))
 
     @property
     def cors_origins(self) -> list[str]:
@@ -56,6 +59,20 @@ class Settings(BaseSettings):
     @property
     def plan_credits(self) -> dict[str, int]:
         return {"free": self.free_credits, "starter": self.starter_credits, "pro": self.pro_credits, "team": self.team_credits}
+
+    @property
+    def parsed_credit_packages(self) -> list[dict[str, int | str]]:
+        packages: list[dict[str, int | str]] = []
+        for item in self.credit_packages.split(","):
+            parts = [part.strip() for part in item.split(":")]
+            if len(parts) != 3 or not all(parts):
+                continue
+            key, credits, price_cents = parts
+            try:
+                packages.append({"key": key, "credits": int(credits), "price_cents": int(price_cents), "currency": "usd"})
+            except ValueError:
+                continue
+        return packages
 
 
 @lru_cache

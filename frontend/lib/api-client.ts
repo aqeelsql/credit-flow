@@ -8,7 +8,6 @@ type ApiOptions = RequestInit & {
 };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
-const USE_LOCAL_AUTH = process.env.NEXT_PUBLIC_USE_LOCAL_AUTH !== "false";
 
 export class ApiError extends Error {
   status: number;
@@ -22,9 +21,6 @@ export class ApiError extends Error {
 
 export async function apiFetch<T>(path: string, options: ApiOptions = {}, auth?: AuthBridge): Promise<T> {
   const initialToken = auth?.getAccessToken() ?? null;
-  if (!API_BASE_URL || USE_LOCAL_AUTH || isMockToken(initialToken)) {
-    return mockResponse<T>(path, options);
-  }
 
   const run = async (token: string | null) => {
     const headers = new Headers(options.headers);
@@ -62,10 +58,6 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}, auth?:
   return response.json() as Promise<T>;
 }
 
-function isMockToken(token: string | null): boolean {
-  return !!token && token.endsWith(".mock-signature");
-}
-
 async function readError(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { message?: string; error?: string | { message?: string } };
@@ -82,27 +74,5 @@ async function readError(response: Response): Promise<string> {
   } catch {
     return response.statusText;
   }
-}
-
-async function mockResponse<T>(path: string, options: ApiOptions): Promise<T> {
-  await new Promise((resolve) => setTimeout(resolve, 180));
-
-  if (path.includes("/auth/refresh")) {
-    return { ok: true } as T;
-  }
-
-  if (path.includes("/verify-email")) {
-    return { status: "verified" } as T;
-  }
-
-  if (path.includes("/forgot-password")) {
-    return { status: "sent" } as T;
-  }
-
-  if (path.includes("/content/drafts") && options.method === "POST") {
-    return { status: "saved" } as T;
-  }
-
-  return { status: "ok" } as T;
 }
 

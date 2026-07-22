@@ -28,9 +28,10 @@ async def handle_service_event(
             logging.warning("Skipped user.registered without user_id/email")
             return
         account_name = payload.get("account_name")
+        name = payload.get("name")
         async with database.transaction() as conn:
             repo = AccountRepository(conn, settings)
-            row = await repo.ensure_individual_account(str(user_id), str(email), account_name)
+            row = await repo.ensure_individual_account(str(user_id), str(email), account_name, str(name) if name else None)
         if row.get("_created"):
             await event_bus.publish(
                 "account.created",

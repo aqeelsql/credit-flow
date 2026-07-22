@@ -1,7 +1,7 @@
-﻿from functools import lru_cache
+from functools import lru_cache
 from pathlib import Path
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     refresh_token_ttl_seconds: int = Field(default=30 * 24 * 60 * 60, validation_alias=auth_env("REFRESH_TOKEN_TTL_SECONDS"))
 
     email_verification_ttl_seconds: int = Field(default=24 * 60 * 60, validation_alias=auth_env("EMAIL_VERIFICATION_TTL_SECONDS"))
+    frontend_base_url: str = Field(default="http://localhost:3000", validation_alias=auth_env("FRONTEND_BASE_URL"))
     password_reset_otp_ttl_seconds: int = Field(default=10 * 60, validation_alias=auth_env("PASSWORD_RESET_OTP_TTL_SECONDS"))
     password_reset_otp_length: int = Field(default=6, validation_alias=auth_env("PASSWORD_RESET_OTP_LENGTH"))
 
@@ -49,12 +50,19 @@ class Settings(BaseSettings):
     default_role: str = Field(default="Owner", validation_alias=auth_env("DEFAULT_ROLE"))
     user_tenant_service_url: str | None = Field(default="http://localhost:8002", validation_alias=AliasChoices("USER_TENANT_SERVICE_URL", "ACCOUNT_SERVICE_URL"))
     user_tenant_service_timeout_seconds: float = Field(default=5.0, validation_alias=AliasChoices("AUTH_USER_TENANT_SERVICE_TIMEOUT_SECONDS", "AUTH_ACCOUNT_SERVICE_TIMEOUT_SECONDS", "USER_TENANT_SERVICE_TIMEOUT_SECONDS", "ACCOUNT_SERVICE_TIMEOUT_SECONDS"))
-    internal_service_token: str = Field(default="", repr=False)
+    internal_service_token: str = Field(default="", validation_alias=AliasChoices("AUTH_INTERNAL_SERVICE_TOKEN", "INTERNAL_SERVICE_TOKEN", "ADMIN_INTERNAL_SERVICE_TOKEN"), repr=False)
     superadmin_emails: str = Field(default="", validation_alias=auth_env("SUPERADMIN_EMAILS"))
 
     secure_cookie: bool = Field(default=False, validation_alias=auth_env("SECURE_COOKIE"))
     refresh_cookie_name: str = Field(default="cf_refresh_token", validation_alias=auth_env("REFRESH_COOKIE_NAME"))
 
+    @field_validator("jwt_algorithm", "jwt_issuer", "jwt_audience", mode="before")
+    @classmethod
+    def strip_jwt_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = str(value).strip()
+        return stripped or None
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
@@ -79,5 +87,6 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
 
 

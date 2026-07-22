@@ -2,10 +2,10 @@ from fastapi import APIRouter, Depends, Request
 
 from app.config import Settings
 from app.database import Database
-from app.dependencies import current_principal, database_dep, require_internal, require_owner, settings_dep
+from app.dependencies import current_principal, database_dep, require_internal, require_owner, require_superadmin, settings_dep
 from app.errors import BillingError
 from app.repository import BillingRepository
-from app.schemas import CheckoutSessionRequest, CheckoutSessionResponse, EscrowConfirmRequest, InternalCustomerRequest, InternalCustomerResponse, InvoiceListResponse, PaymentMethodResponse, PaymentMethodSetupResponse, Principal, RefundRequest, RefundResponse
+from app.schemas import CheckoutSessionRequest, CheckoutSessionResponse, CreateCreditPackageRequest, CreditCheckoutRequest, CreditCheckoutResponse, CreditCheckoutSyncResponse, CreditPackageResponse, CreditPurchaseResponse, EscrowConfirmRequest, InternalCustomerRequest, InternalCustomerResponse, InvoiceListResponse, PaymentMethodResponse, PaymentMethodSetupResponse, Principal, RefundRequest, RefundResponse, UpdateCreditPackageRequest
 from app.service import BillingService
 from app.stripe_client import StripeClient
 
@@ -22,6 +22,70 @@ async def create_checkout_session(payload: CheckoutSessionRequest, principal: Pr
     async with db.transaction() as conn:
         result = await service.create_checkout_session(BillingRepository(conn), account_id, payload.plan, principal.email)
     return CheckoutSessionResponse(**result)
+
+
+@router.get("/credits/packages", response_model=list[CreditPackageResponse])
+async def list_credit_packages(db: Database = Depends(database_dep)):
+    async with db.acquire() as conn:
+        packages = await BillingRepository(conn).list_credit_packages(include_inactive=False)
+    return [CreditPackageResponse(**package) for package in packages]
+
+
+@router.get("/admin/credits/packages", response_model=list[CreditPackageResponse])
+async def admin_list_credit_packages(principal: Principal = Depends(current_principal), db: Database = Depends(database_dep)):
+    require_superadmin(principal)
+    async with db.acquire() as conn:
+        packages = await BillingRepository(conn).list_credit_packages(include_inactive=True)
+    return [CreditPackageResponse(**package) for package in packages]
+
+
+@router.get("/admin/credits/purchases", response_model=list[CreditPurchaseResponse])
+async def admin_list_credit_purchases(account_id: str | None = None, principal: Principal = Depends(current_principal), db: Database = Depends(database_dep)):
+    require_superadmin(principal)
+    async with db.acquire() as conn:
+        purchases = await BillingRepository(conn).list_credit_purchases(account_id=account_id, limit=100)
+    return [CreditPurchaseResponse(**purchase) for purchase in purchases]
+
+
+@router.post("/admin/credits/packages", response_model=CreditPackageResponse, status_code=201)
+async def admin_create_credit_package(payload: CreateCreditPackageRequest, principal: Principal = Depends(current_principal), db: Database = Depends(database_dep)):
+    user_id = require_superadmin(principal)
+    async with db.transaction() as conn:
+        package = await BillingRepository(conn).create_credit_package(key=payload.key, credits=payload.credits, price_cents=payload.price_cents, currency=payload.currency, created_by_user_id=user_id)
+    return CreditPackageResponse(**package)
+
+
+@router.patch("/admin/credits/packages/{package_id}", response_model=CreditPackageResponse)
+async def admin_update_credit_package(package_id: str, payload: UpdateCreditPackageRequest, principal: Principal = Depends(current_principal), db: Database = Depends(database_dep)):
+    require_superadmin(principal)
+    async with db.transaction() as conn:
+        package = await BillingRepository(conn).update_credit_package(package_id, credits=payload.credits, price_cents=payload.price_cents, currency=payload.currency, active=payload.active)
+    return CreditPackageResponse(**package)
+
+
+@router.delete("/admin/credits/packages/{package_id}", response_model=CreditPackageResponse)
+async def admin_deactivate_credit_package(package_id: str, principal: Principal = Depends(current_principal), db: Database = Depends(database_dep)):
+    require_superadmin(principal)
+    async with db.transaction() as conn:
+        package = await BillingRepository(conn).deactivate_credit_package(package_id)
+    return CreditPackageResponse(**package)
+
+
+@router.post("/checkout/credits", response_model=CreditCheckoutResponse)
+async def create_credit_checkout(payload: CreditCheckoutRequest, principal: Principal = Depends(current_principal), db: Database = Depends(database_dep), service: BillingService = Depends(service_dep)):
+    account_id = require_owner(principal)
+    async with db.transaction() as conn:
+        result = await service.create_credit_checkout_session(BillingRepository(conn), account_id, payload.package_key, payload.credits, principal.email)
+    return CreditCheckoutResponse(**result)
+
+
+@router.post("/checkout/credits/{session_id}/sync", response_model=CreditCheckoutSyncResponse)
+async def sync_credit_checkout(session_id: str, principal: Principal = Depends(current_principal), db: Database = Depends(database_dep), service: BillingService = Depends(service_dep)):
+    account_id = require_owner(principal)
+    async with db.transaction() as conn:
+        result = await service.sync_credit_checkout_session(BillingRepository(conn), session_id, account_id)
+    await service.grant_credit_purchase_direct(result)
+    return CreditCheckoutSyncResponse(**result)
 
 
 @router.get("/billing/invoices", response_model=InvoiceListResponse)

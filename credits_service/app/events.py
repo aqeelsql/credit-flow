@@ -45,8 +45,11 @@ class EventBus:
         if self._channel is None or self._exchange is None:
             raise CreditsError("events_unavailable", "RabbitMQ is unavailable.", 503)
         self._queue = await self._channel.declare_queue(self.settings.rabbitmq_queue, durable=True)
-        await self._queue.bind(self._exchange, routing_key="invoice.paid")
-        await self._queue.bind(self._exchange, routing_key="refund.issued")
+        for exchange_name in self.settings.exchanges:
+            exchange = await self._channel.declare_exchange(exchange_name, ExchangeType.TOPIC, durable=True)
+            await self._queue.bind(exchange, routing_key="invoice.paid")
+            await self._queue.bind(exchange, routing_key="refund.issued")
+            await self._queue.bind(exchange, routing_key="ai.generation_completed")
         await self._queue.consume(self._consume)
 
     async def close(self) -> None:

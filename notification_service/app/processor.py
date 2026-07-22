@@ -13,6 +13,7 @@ from app.email_client import EmailClient
 from app.events import NotificationEventBus
 from app.repository import NotificationRepository
 from app.templates import build_email, recipient_for_event
+from app.errors import NotificationError
 
 
 class NotificationProcessor:
@@ -44,7 +45,7 @@ class NotificationProcessor:
         if not recipient:
             async with self.database.transaction() as conn:
                 repo = NotificationRepository(conn)
-                await repo.log_attempt(event_id=event_id, event_type=event_type, notification_type=email["notification_type"], channel="email", recipient="unknown", subject=email["subject"], status="skipped", attempt=attempt, error="No recipient email found.", metadata=payload)
+                await repo.log_attempt(event_id=event_id, event_type=event_type, notification_type=email["notification_type"], channel="email", recipient="unknown", subject=email["subject"], status="skipped", provider=self.email_client.provider, attempt=attempt, error="No recipient email found.", metadata=payload)
                 await repo.mark_event_processed(event_id)
             return
 
@@ -58,7 +59,7 @@ class NotificationProcessor:
 
         async with self.database.transaction() as conn:
             repo = NotificationRepository(conn)
-            log = await repo.log_attempt(event_id=event_id, event_type=event_type, notification_type=email["notification_type"], channel="email", recipient=recipient, subject=email["subject"], status="sent", provider_message_id=provider_message_id, attempt=attempt, metadata=payload)
+            log = await repo.log_attempt(event_id=event_id, event_type=event_type, notification_type=email["notification_type"], channel="email", recipient=recipient, subject=email["subject"], status="sent", provider=self.email_client.provider, provider_message_id=provider_message_id, attempt=attempt, metadata=payload)
             await repo.mark_event_processed(event_id)
         await self.event_bus.publish("notification.sent", {"event_id": event_id, "source_event_type": event_type, "notification_log_id": log["id"], "notification_type": email["notification_type"], "recipient": recipient, "provider_message_id": provider_message_id})
 
@@ -69,14 +70,18 @@ class NotificationProcessor:
         recipient = recipient_for_event(routing_key, payload, self.settings) or "unknown"
         async with self.database.transaction() as conn:
             repo = NotificationRepository(conn)
-            await repo.log_attempt(event_id=event_id, event_type=routing_key, notification_type=email["notification_type"], channel="email", recipient=recipient, subject=email["subject"], status="failed", attempt=next_retry, error=error, metadata=payload)
+            await repo.log_attempt(event_id=event_id, event_type=routing_key, notification_type=email["notification_type"], channel="email", recipient=recipient, subject=email["subject"], status="failed", provider=self.email_client.provider, attempt=next_retry, error=error, metadata=payload)
 
-        if retry_count < self.settings.max_retries:
-            logging.warning("Notification event %s failed; retry %s/%s", event_id, next_retry, self.settings.max_retries)
+        is_permanent = isinstance(exc, NotificationError) and exc.status_code < 500
+        if not is_permanent and retry_count < self.settings.max_retries:
+            logging.warning("Notification event %s failed (%s); retry %s/%s", event_id, error, next_retry, self.settings.max_retries, exc_info=(type(exc), exc, exc.__traceback__))
             await self.event_bus.publish_retry(routing_key, payload, next_retry)
             return
 
-        logging.error("Notification event %s exhausted retries", event_id)
+        if is_permanent:
+            logging.error("Notification event %s failed permanently: %s", event_id, error)
+        else:
+            logging.error("Notification event %s exhausted retries: %s", event_id, error)
         await self.event_bus.publish_dlq(routing_key, payload, error, retry_count)
         async with self.database.transaction() as conn:
             repo = NotificationRepository(conn)
