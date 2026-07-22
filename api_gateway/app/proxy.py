@@ -1,4 +1,4 @@
-from urllib.parse import urljoin
+﻿from urllib.parse import urljoin
 
 import httpx
 from fastapi import Request, Response
@@ -100,7 +100,12 @@ async def proxy_request(request: Request, service_key: str, path: str, settings:
         raise GatewayError("route_not_configured", f"No downstream service configured for {service_key}.", 502)
 
     principal = await authenticate_for_proxy(request, service_key, path, settings, redis_state)
-    target = urljoin(service_url.rstrip("/") + "/", path.lstrip("/"))
+    if service_key == "admin":
+        admin_base_already_prefixed = service_url.rstrip("/").endswith("/admin")
+        downstream_path = path if admin_base_already_prefixed else f"admin/{path.lstrip('/')}"
+    else:
+        downstream_path = path
+    target = urljoin(service_url.rstrip("/") + "/", downstream_path.lstrip("/"))
     body = await request.body()
     headers = build_forward_headers(request, principal)
 

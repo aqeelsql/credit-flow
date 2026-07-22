@@ -25,7 +25,7 @@ export default function SuperAdminLoginPage() {
         setError("This route is only for SuperAdmin accounts.");
         return;
       }
-      router.push("/admin/directory");
+      router.push("/admin/usage");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to enter the admin console.");
     } finally {
@@ -69,3 +69,4 @@ export default function SuperAdminLoginPage() {
     </main>
   );
 }
+

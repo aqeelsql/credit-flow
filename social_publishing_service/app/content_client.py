@@ -1,10 +1,19 @@
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import unquote, urljoin, urlparse
 
 import httpx
 
 from app.config import PROJECT_ROOT, Settings
 from app.errors import SocialPublishingError
+
+
+CONTENT_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
 
 
 class ContentClient:
@@ -23,6 +32,26 @@ class ContentClient:
             raise SocialPublishingError("content_fetch_failed", f"Content Service rejected lookup ({response.status_code}).", 502)
         return response.json()
 
+    def _content_type_for_path(self, path: Path) -> str:
+        return CONTENT_TYPES.get(path.suffix.lower(), "application/octet-stream")
+
+    def _resolve_local_content_asset(self, asset_ref: str) -> Path:
+        parsed = urlparse(asset_ref)
+        if parsed.scheme != "local" or parsed.netloc != "content":
+            raise SocialPublishingError("unsupported_image_asset_ref", "Attached local image asset reference is not supported.", 422)
+        parts = [unquote(part) for part in parsed.path.strip("/").split("/") if part]
+        if len(parts) != 2:
+            raise SocialPublishingError("invalid_image_asset_ref", "Attached local image asset reference is invalid.", 422)
+        account_id, filename = parts
+        root = Path(self.settings.content_upload_dir)
+        if not root.is_absolute():
+            root = PROJECT_ROOT / root
+        root = root.resolve()
+        path = (root / account_id / filename).resolve()
+        if not str(path).lower().startswith(str(root).lower()):
+            raise SocialPublishingError("invalid_image_asset_ref", "Attached local image asset escapes the upload directory.", 422)
+        return path
+
     async def fetch_image_bytes(self, content: dict) -> tuple[bytes, str] | None:
         image_url = content.get("image_url")
         asset_ref = content.get("image_asset_ref")
@@ -33,13 +62,15 @@ class ContentClient:
                 raise SocialPublishingError("image_fetch_failed", "Attached image URL could not be downloaded.", 502)
             return response.content, response.headers.get("content-type", "application/octet-stream")
         if asset_ref:
-            path = Path(str(asset_ref))
-            if not path.is_absolute():
-                path = PROJECT_ROOT / path
+            asset_ref_text = str(asset_ref)
+            if asset_ref_text.startswith("local://content/"):
+                path = self._resolve_local_content_asset(asset_ref_text)
+            else:
+                path = Path(asset_ref_text)
+                if not path.is_absolute():
+                    path = PROJECT_ROOT / path
             if not path.exists() or not path.is_file():
                 raise SocialPublishingError("image_asset_missing", "Attached local image asset was not found.", 404)
-            suffix = path.suffix.lower()
-            content_type = "image/png" if suffix == ".png" else "image/jpeg" if suffix in {".jpg", ".jpeg"} else "application/octet-stream"
-            return path.read_bytes(), content_type
+            return path.read_bytes(), self._content_type_for_path(path)
         return None
 

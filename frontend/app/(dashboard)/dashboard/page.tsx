@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Coins, Users, WalletCards, Zap } from "lucide-react";
@@ -29,6 +29,7 @@ function OwnerDashboard() {
   const { activeAccount, accessToken } = useAuth();
   const [balance, setBalance] = useState<number | null>(null);
   const [purchases, setPurchases] = useState<CreditTransaction[]>([]);
+  const [creditsUsed, setCreditsUsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,6 +44,7 @@ function OwnerDashboard() {
       if (txResponse.ok) {
         const transactions = (await txResponse.json()) as CreditTransaction[];
         setPurchases(transactions.filter((item) => item.amount > 0 && item.reason === "purchase").slice(0, 5));
+        setCreditsUsed(transactions.filter((item) => item.amount < 0).reduce((sum, item) => sum + Math.abs(item.amount), 0));
       }
     };
     load().catch((err) => setError(err instanceof Error ? err.message : "Unable to load credit balance."));
@@ -53,7 +55,7 @@ function OwnerDashboard() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Owner dashboard</h1>
-          <p className="page-subtitle">Live account scope for {activeAccount?.name ?? "the active account"}.</p>
+          <p className="page-subtitle">Account overview for {activeAccount?.name ?? "the active account"}.</p>
         </div>
         <span className="status-badge live">Real data</span>
       </div>
@@ -65,13 +67,13 @@ function OwnerDashboard() {
           <Coins size={22} color="var(--color-primary)" aria-hidden="true" />
           <h3>Credit balance</h3>
           <strong>{(balance ?? activeAccount?.credits ?? 0).toLocaleString()}</strong>
-          <p>Read from Credits Service.</p>
+          <p>Available balance for content generation.</p>
         </article>
         <article className="metric-card">
           <Zap size={22} color="var(--color-primary)" aria-hidden="true" />
           <h3>Credits used</h3>
-          <strong>—</strong>
-          <p>Usage Service data appears in the Admin/Ops dashboard.</p>
+          <strong>{creditsUsed.toLocaleString()}</strong>
+          <p>Track usage across generated content.</p>
         </article>
         <article className="metric-card">
           <Users size={22} color="var(--color-primary)" aria-hidden="true" />
@@ -81,7 +83,7 @@ function OwnerDashboard() {
         </article>
       </div>
 
-      <div className="admin-grid with-top-gap">
+      <div className="admin-grid dashboard-panels with-top-gap">
         <article className="panel">
           <div className="panel-header"><h2>Recent credit purchases</h2><span className="status-badge neutral">{purchases.length} shown</span></div>
           {purchases.length ? (
@@ -89,14 +91,23 @@ function OwnerDashboard() {
               <thead><tr><th>Credits</th><th>Package</th><th>Date</th></tr></thead>
               <tbody>{purchases.map((item) => <tr key={item.id}><td className="mono">+{item.amount.toLocaleString()}</td><td>{String(item.metadata?.package_key ?? "Stripe checkout")}</td><td>{new Date(item.created_at).toLocaleString()}</td></tr>)}</tbody>
             </table>
-          ) : <p>No credit purchases recorded yet. Completed Stripe purchases will appear here after the webhook is processed.</p>}
+          ) : <p>No credit purchases recorded yet.</p>}
         </article>
         <article className="panel">
           <div className="panel-header"><h2>Plan posture</h2><WalletCards size={22} color="var(--color-primary)" aria-hidden="true" /></div>
-          <p>Use Credits and Billing to manage real balances and plan changes.</p>
+          <p>Manage credits, payment details, and account plan changes from one place.</p>
           <div className="button-row with-top-gap"><a className="button secondary" href="/credits">Manage credits <ArrowUpRight size={15} aria-hidden="true" /></a></div>
         </article>
       </div>
     </section>
   );
 }
+
+
+
+
+
+
+
+
+

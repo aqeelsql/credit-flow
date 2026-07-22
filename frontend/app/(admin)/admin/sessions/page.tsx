@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw, ShieldOff } from "lucide-react";
@@ -62,7 +62,7 @@ export default function SessionsPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Active sessions</h1>
-          <p className="page-subtitle">Live JWT session keys read from Redis. Revoking a JTI invalidates that session at the gateway.</p>
+          <p className="page-subtitle">Review active sessions and revoke access when needed.</p>
         </div>
         <span className="status-badge live">{activeCount} active</span>
       </div>
@@ -82,7 +82,7 @@ export default function SessionsPage() {
 
       <div className="table-panel">
         <div className="table-header">
-          <h2>Redis session index</h2>
+          <h2>Active sessions</h2>
           <span className="status-badge neutral">{loading ? "Loading" : `${sessions.length} rows`}</span>
         </div>
         {sessions.length ? (
@@ -101,9 +101,9 @@ export default function SessionsPage() {
               {sessions.map((session) => (
                 <tr key={session.jti}>
                   <td className="mono" title={session.jti}>{compactId(session.jti, 16)}</td>
-                  <td className="mono">{session.account_id ?? "—"}</td>
-                  <td className="mono">{session.user_id ?? "—"}</td>
-                  <td>{session.role ?? "—"}</td>
+                  <td className="mono">{session.account_id ?? "â€”"}</td>
+                  <td className="mono">{session.user_id ?? "â€”"}</td>
+                  <td>{session.role ?? "â€”"}</td>
                   <td className="mono">{ttlLabel(session.ttl_seconds)}</td>
                   <td>
                     <button className="icon-button danger" type="button" aria-label={`Revoke session ${session.jti}`} disabled={busyJti === session.jti} onClick={() => setPendingRevoke(session)}>
@@ -115,7 +115,7 @@ export default function SessionsPage() {
             </tbody>
           </table>
         ) : (
-          <div className="empty-state">{loading ? "Loading active sessions…" : "No active sessions found."}</div>
+          <div className="empty-state">{loading ? "Loading active sessionsâ€¦" : "No active sessions found."}</div>
         )}
       </div>
 
@@ -123,3 +123,6 @@ export default function SessionsPage() {
     </section>
   );
 }
+
+
+

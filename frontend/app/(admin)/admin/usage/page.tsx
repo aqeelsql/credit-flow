@@ -1,22 +1,27 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, Coins, Gauge, RefreshCw } from "lucide-react";
+import { Activity, Coins, DollarSign, Gauge, RefreshCw } from "lucide-react";
 import {
   adminFetch,
   numberFromRecord,
   stringFromRecord,
   type AdminAccountDirectoryItem,
   type AdminAccountDirectoryResponse,
-  type AdminAccountOverview
+  type AdminAccountOverview,
+  type AdminOpsSummary
 } from "@/lib/admin-api";
 import { useAuth } from "@/lib/auth-context";
+
+type CreditPackage = { credits?: number; active?: boolean };
+type CreditPurchase = { credits?: number; amount_paid?: number; currency?: string };
 
 export default function UsagePage() {
   const { accessToken, activeAccount, session } = useAuth();
   const [accounts, setAccounts] = useState<AdminAccountDirectoryItem[]>([]);
   const [accountId, setAccountId] = useState(activeAccount?.id ?? "");
   const [overview, setOverview] = useState<AdminAccountOverview | null>(null);
+  const [opsSummary, setOpsSummary] = useState<AdminOpsSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isSuperAdmin = session?.role === "SuperAdmin";
@@ -32,6 +37,47 @@ export default function UsagePage() {
     }
   }, [accessToken, accountId, isSuperAdmin]);
 
+  const loadOpsSummary = useCallback(async () => {
+    if (!isSuperAdmin) return;
+    try {
+      const summary = await adminFetch<AdminOpsSummary>("/ops-summary", accessToken);
+      if (Number(summary.total_credits_generated ?? 0) > 0) {
+        setOpsSummary(summary);
+        return;
+      }
+
+      const [packages, purchases] = await Promise.all([
+        fetch("/api/billing/admin/credits/packages", {
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+          cache: "no-store"
+        }).then((response) => response.ok ? response.json() as Promise<CreditPackage[]> : []),
+        fetch("/api/billing/admin/credits/purchases", {
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+          cache: "no-store"
+        }).then((response) => response.ok ? response.json() as Promise<CreditPurchase[]> : [])
+      ]);
+
+      const totalCreditsGenerated = packages.reduce((sum, item) => sum + Number(item.credits ?? 0), 0);
+      const totalCreditsSold = purchases.length ? purchases.reduce((sum, item) => sum + Number(item.credits ?? 0), 0) : Number(summary.total_credits_sold ?? 0);
+      const totalMoneyGenerated = purchases.length ? purchases.reduce((sum, item) => sum + Number(item.amount_paid ?? 0), 0) : Number(summary.total_money_generated_cents ?? 0);
+      const activePackageCredits = packages.filter((item) => item.active !== false).reduce((sum, item) => sum + Number(item.credits ?? 0), 0);
+      setOpsSummary({
+        ...summary,
+        total_credits_generated: totalCreditsGenerated,
+        package_count: packages.length,
+        active_package_count: packages.filter((item) => item.active !== false).length,
+        active_package_credits: activePackageCredits,
+        total_credits_sold: totalCreditsSold,
+        credits_left: Math.max(totalCreditsGenerated - totalCreditsSold, 0),
+        total_money_generated_cents: totalMoneyGenerated,
+        currency: purchases[0]?.currency || summary.currency || "usd",
+        purchase_count: purchases.length || summary.purchase_count || 0
+      });
+    } catch {
+      setOpsSummary(null);
+    }
+  }, [accessToken, isSuperAdmin]);
+
   useEffect(() => {
     if (!accountId && activeAccount?.id) setAccountId(activeAccount.id);
   }, [accountId, activeAccount?.id]);
@@ -39,6 +85,10 @@ export default function UsagePage() {
   useEffect(() => {
     void loadAccounts();
   }, [loadAccounts]);
+
+  useEffect(() => {
+    void loadOpsSummary();
+  }, [loadOpsSummary]);
 
   const loadOverview = useCallback(async () => {
     const targetAccountId = (accountId || activeAccount?.id || "").trim();
@@ -63,13 +113,25 @@ export default function UsagePage() {
   }, [accountId, activeAccount?.id, loadOverview]);
 
   const selectedAccount = accounts.find((account) => account.id === accountId);
+  const generatedCredits = Number(opsSummary?.total_credits_generated ?? 0);
+  const soldCredits = Number(opsSummary?.total_credits_sold ?? 0);
+  const creditsLeft = Number(opsSummary?.credits_left ?? 0);
+  const packageCount = Number(opsSummary?.package_count ?? 0);
+  const purchaseCount = Number(opsSummary?.purchase_count ?? 0);
+  const activePackageCredits = Number(opsSummary?.active_package_credits ?? 0);
+  const accountCount = Number(opsSummary?.account_count ?? 0);
+  const moneyGenerated = (Number(opsSummary?.total_money_generated_cents ?? 0) / 100).toLocaleString(undefined, {
+    style: "currency",
+    currency: (opsSummary?.currency || "usd").toUpperCase()
+  });
   const totals = useMemo(() => {
     const balance = numberFromRecord(overview?.credits, ["balance", "credits", "available_credits", "remaining_credits"]);
-    const quota = numberFromRecord(overview?.credits, ["quota", "monthly_quota", "limit", "credits"]);
-    const tokens = numberFromRecord(overview?.usage, ["tokens_used", "total_tokens", "used", "usage"]);
+    const quota = numberFromRecord(overview?.usage, ["quota_tokens", "quota", "monthly_quota", "limit"]);
+    const tokens = numberFromRecord(overview?.usage, ["used_tokens", "tokens_used", "total_tokens", "used", "usage"]);
+    const remainingTokens = numberFromRecord(overview?.usage, ["remaining_tokens"]);
     const cost = numberFromRecord(overview?.usage, ["total_cost", "cost", "period_cost"]);
-    const ratio = quota > 0 ? Math.min(Math.round(((quota - balance) / quota) * 100), 100) : 0;
-    return { balance, quota, tokens, cost, ratio };
+    const ratio = quota > 0 ? Math.min(Math.round((tokens / quota) * 100), 100) : 0;
+    return { balance, quota, tokens, remainingTokens, cost, ratio };
   }, [overview]);
 
   return (
@@ -77,11 +139,40 @@ export default function UsagePage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Ops dashboard</h1>
-          <p className="page-subtitle">Live per-account operational view: plan tier, credits, usage, members, and downstream service health.</p>
+          <p className="page-subtitle">Monitor platform credit inventory, revenue, account balances, usage, and members.</p>
         </div>
       </div>
 
-      <div className="panel search-row">
+      {isSuperAdmin ? (
+        <div className="metric-grid with-top-gap">
+          <article className="metric-card">
+            <Coins size={22} color="var(--color-primary)" aria-hidden="true" />
+            <h3>Generated credits</h3>
+            <strong>{generatedCredits.toLocaleString()}</strong>
+            <p>Credit package inventory</p>
+          </article>
+          <article className="metric-card">
+            <Activity size={22} color="var(--color-primary)" aria-hidden="true" />
+            <h3>Credits sold</h3>
+            <strong>{soldCredits.toLocaleString()}</strong>
+            <p>{purchaseCount.toLocaleString()} purchases</p>
+          </article>
+          <article className="metric-card">
+            <Gauge size={22} color="var(--color-primary)" aria-hidden="true" />
+            <h3>Credits left</h3>
+            <strong>{creditsLeft.toLocaleString()}</strong>
+            <p>Available package credits</p>
+          </article>
+          <article className="metric-card">
+            <DollarSign size={22} color="var(--color-primary)" aria-hidden="true" />
+            <h3>Money generated</h3>
+            <strong>{moneyGenerated}</strong>
+            <p>{accountCount.toLocaleString()} accounts</p>
+          </article>
+        </div>
+      ) : null}
+
+      <div className="panel search-row with-top-gap">
         <div className="field">
           <label htmlFor="ops-account">Account</label>
           {isSuperAdmin ? (
@@ -95,7 +186,7 @@ export default function UsagePage() {
             <input id="ops-account" value={accountId} readOnly placeholder="Current account" />
           )}
         </div>
-        <button className="button secondary" type="button" onClick={() => void loadOverview()} disabled={loading || !accountId}>
+        <button className="button secondary" type="button" onClick={() => { void loadOverview(); void loadOpsSummary(); }} disabled={loading || !accountId}>
           <RefreshCw className={loading ? "spin" : ""} size={16} aria-hidden="true" />
           Refresh
         </button>
@@ -108,19 +199,19 @@ export default function UsagePage() {
           <Coins size={22} color="var(--color-primary)" aria-hidden="true" />
           <h3>Credit balance</h3>
           <strong>{totals.balance.toLocaleString()}</strong>
-          <p>{totals.quota ? `${totals.quota.toLocaleString()} quota` : selectedAccount ? `${selectedAccount.credits.toLocaleString()} account credits` : "Current visible balance."}</p>
+          <p>Account credit balance</p>
         </article>
         <article className="metric-card">
           <Activity size={22} color="var(--color-primary)" aria-hidden="true" />
           <h3>Tokens used</h3>
           <strong>{totals.tokens.toLocaleString()}</strong>
-          <p>${totals.cost.toFixed(4)} model cost recorded.</p>
+          <p>{totals.quota ? `${totals.remainingTokens.toLocaleString()} tokens remaining` : `$${totals.cost.toFixed(4)} model cost`}</p>
         </article>
         <article className="metric-card">
           <Gauge size={22} color="var(--color-primary)" aria-hidden="true" />
           <h3>Usage ratio</h3>
           <strong>{totals.ratio}%</strong>
-          <p>Derived from quota and current balance when available.</p>
+          <p>{totals.quota ? `${totals.tokens.toLocaleString()} / ${totals.quota.toLocaleString()} tokens` : "No quota data"}</p>
         </article>
       </div>
 
@@ -161,3 +252,14 @@ export default function UsagePage() {
     </section>
   );
 }
+
+
+
+
+
+
+
+
+
+
+

@@ -1,5 +1,6 @@
-Flask
-flask-cors
+fastapi
+uvicorn[standard]
+python-multipart
 psycopg[binary]
 pika
 pydantic-settings

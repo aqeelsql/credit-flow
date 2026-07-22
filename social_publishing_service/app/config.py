@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     retry_delay_ms: int = Field(default=30000, validation_alias=social_env("RETRY_DELAY_MS"))
 
     content_service_url: str = Field(default="http://localhost:8003", validation_alias=social_env("CONTENT_SERVICE_URL"))
+    content_upload_dir: str = Field(default=str(PROJECT_ROOT / "content_service" / "uploads"), validation_alias=social_env("CONTENT_UPLOAD_DIR"))
     internal_service_token: str = Field(default="", repr=False)
 
     token_encryption_key: str = Field(default="", repr=False, validation_alias=social_env("TOKEN_ENCRYPTION_KEY"))
