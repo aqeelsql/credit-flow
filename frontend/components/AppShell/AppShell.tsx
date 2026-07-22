@@ -40,10 +40,11 @@ const appNav: NavItem[] = [
 ];
 
 const adminNav: NavItem[] = [
+  { href: "/admin/usage", label: "Ops dashboard", icon: LayoutDashboard, roles: ["SuperAdmin", "TenantAdmin"] },
   { href: "/admin/directory", label: "Directory", icon: Search, roles: ["SuperAdmin"] },
-  { href: "/admin/sessions", label: "Sessions", icon: Activity, roles: ["SuperAdmin"] },
-  { href: "/admin/usage", label: "Global dashboard", icon: WalletCards, roles: ["SuperAdmin"] },
-  { href: "/admin/audit-log", label: "Audit log", icon: FileClock, roles: ["SuperAdmin"] }
+  { href: "/admin/credit-packages", label: "Credit packages", icon: WalletCards, roles: ["SuperAdmin"] },
+  { href: "/admin/sessions", label: "Sessions", icon: Activity, roles: ["SuperAdmin", "TenantAdmin"] },
+  { href: "/admin/audit-log", label: "Audit log", icon: FileClock, roles: ["SuperAdmin", "TenantAdmin"] }
 ];
 
 export function AppShell({ children, mode = "app" }: { children: React.ReactNode; mode?: "app" | "admin" }) {
@@ -62,7 +63,7 @@ export function AppShell({ children, mode = "app" }: { children: React.ReactNode
     <div className="app-layout">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <Link className="brand" href={mode === "admin" ? "/admin/directory" : "/content-studio"}>
+          <Link className="brand" href={mode === "admin" ? "/admin/usage" : "/content-studio"}>
             <span className="brand-mark">
               <Shield size={18} aria-hidden="true" />
             </span>
@@ -102,4 +103,5 @@ export function AppShell({ children, mode = "app" }: { children: React.ReactNode
     </div>
   );
 }
+
 
