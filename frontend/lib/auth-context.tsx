@@ -26,7 +26,7 @@ type AuthContextValue = {
   session: SessionPayload | null;
   accounts: Account[];
   activeAccount: Account | null;
-  login: (email: string, password: string, preferredRole?: AccountRole) => Promise<void>;
+  login: (email: string, password: string, preferredRole?: AccountRole) => Promise<AccountRole>;
   signup: (email: string, password: string, accountName?: string) => Promise<SignupResponse>;
   logout: () => void;
   switchAccount: (accountId: string) => Promise<void>;
@@ -279,11 +279,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const identity = email.trim() || "guest@creditflow.test";
       if (preferredRole === "SuperAdmin") {
         enterPlatform(identity);
-        return;
+        return "SuperAdmin";
       }
 
       const account = createLocalAccount(identity, undefined, "individual", preferredRole);
       enterWithAccount(account, identity);
+      return account.role;
     },
     [enterPlatform, enterWithAccount]
   );
