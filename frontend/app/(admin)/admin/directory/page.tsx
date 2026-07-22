@@ -102,7 +102,7 @@ export default function DirectoryPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Account operations</h1>
-          <p className="page-subtitle">Synced account directory with live plan, credits, usage, and member data from the platform services.</p>
+          <p className="page-subtitle">Browse accounts with current plan, credit, usage, and member information.</p>
         </div>
         <button className="button secondary" type="button" onClick={() => void loadAccounts()} disabled={loadingAccounts}>
           <RefreshCw className={loadingAccounts ? "spin" : ""} size={16} aria-hidden="true" />
@@ -189,7 +189,7 @@ export default function DirectoryPage() {
             <article className="metric-card">
               <h3>Credit balance</h3>
               <strong>{metrics.credits.toLocaleString()}</strong>
-              <p>Read from Credits service when available.</p>
+              <p>Current available balance.</p>
             </article>
             <article className="metric-card">
               <h3>Usage / cost</h3>

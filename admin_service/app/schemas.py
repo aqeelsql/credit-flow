@@ -95,3 +95,12 @@ class AccountDirectoryItem(BaseModel):
 class AccountDirectoryResponse(BaseModel):
     items: list[AccountDirectoryItem]
     errors: dict[str, str] = {}
+
+class OpsSummaryResponse(BaseModel):
+    total_credits_sold: int = 0
+    total_money_generated_cents: int = 0
+    currency: str = "usd"
+    purchase_count: int = 0
+    account_count: int = 0
+    errors: dict[str, str] = {}
+

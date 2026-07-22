@@ -43,7 +43,7 @@ export default function AuditLogPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Audit log</h1>
-          <p className="page-subtitle">Searchable timeline of domain events captured by the Admin/Ops wildcard RabbitMQ consumer.</p>
+          <p className="page-subtitle">Searchable activity timeline across accounts, members, payments, publishing, and usage.</p>
         </div>
         <span className="status-badge neutral">{rows.length} events</span>
       </div>
@@ -83,14 +83,14 @@ export default function AuditLogPage() {
                     <span className="mono">{row.account_id ?? "platform"}</span> / actor <span className="mono">{row.actor_user_id ?? "system"}</span>
                   </p>
                   <p>
-                    {row.summary ?? row.routing_key} · <span className="mono">{row.exchange ?? "exchange"}</span> · event <span className="mono" title={row.event_id}>{compactId(row.event_id, 14)}</span>
+                    {row.summary ?? row.routing_key} Â· <span className="mono">{row.exchange ?? "exchange"}</span> Â· event <span className="mono" title={row.event_id}>{compactId(row.event_id, 14)}</span>
                   </p>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <div className="empty-state">{loading ? "Loading audit events…" : "No audit events found yet."}</div>
+          <div className="empty-state">{loading ? "Loading audit eventsâ€¦" : "No audit events found yet."}</div>
         )}
       </article>
     </section>

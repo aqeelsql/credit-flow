@@ -73,6 +73,19 @@ export type AdminAccountDirectoryItem = {
   updated_at: string;
 };
 
+export type AdminOpsSummary = {
+  total_credits_generated: number;
+  total_credits_sold: number;
+  credits_left: number;
+  active_package_credits: number;
+  package_count: number;
+  active_package_count: number;
+  total_money_generated_cents: number;
+  currency: string;
+  purchase_count: number;
+  account_count: number;
+  errors?: Record<string, string>;
+};
 export type AdminAccountDirectoryResponse = {
   items: AdminAccountDirectoryItem[];
   errors?: Record<string, string>;

@@ -54,6 +54,7 @@ function OwnerDashboard() {
   const { activeAccount, accessToken, session } = useAuth();
   const [balance, setBalance] = useState<number | null>(null);
   const [purchases, setPurchases] = useState<CreditTransaction[]>([]);
+  const [creditsUsed, setCreditsUsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -97,6 +98,7 @@ function OwnerDashboard() {
       if (txResponse.ok) {
         const transactions = (await txResponse.json()) as CreditTransaction[];
         setPurchases(transactions.filter((item) => item.amount > 0 && item.reason === "purchase").slice(0, 5));
+        setCreditsUsed(transactions.filter((item) => item.amount < 0).reduce((sum, item) => sum + Math.abs(item.amount), 0));
       }
     };
   }, [loadDashboard]);
@@ -274,12 +276,12 @@ function OwnerDashboard() {
               <thead><tr><th>Credits</th><th>Package</th><th>Date</th></tr></thead>
               <tbody>{purchases.map((item) => <tr key={item.id}><td className="mono">+{item.amount.toLocaleString()}</td><td>{String(item.metadata?.package_key ?? "Stripe checkout")}</td><td>{new Date(item.created_at).toLocaleString()}</td></tr>)}</tbody>
             </table>
-          ) : <p>No credit purchases recorded yet. Completed Stripe purchases will appear here after the webhook is processed.</p>}
+          ) : <p>No credit purchases recorded yet.</p>}
         </article>
 
         <article className="panel">
           <div className="panel-header"><h2>Plan posture</h2><WalletCards size={22} color="var(--color-primary)" aria-hidden="true" /></div>
-          <p>Use Credits and Billing to manage real balances and plan changes.</p>
+          <p>Manage credits, payment details, and account plan changes from one place.</p>
           <div className="button-row with-top-gap"><a className="button secondary" href="/credits">Manage credits <ArrowUpRight size={15} aria-hidden="true" /></a></div>
         </article>
       </div>

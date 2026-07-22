@@ -104,7 +104,7 @@ function CreditsPurchase() {
         method: "POST",
         body: JSON.stringify({ package_key: item.key, credits })
       });
-      if (!checkout.checkout_url) throw new Error("Billing did not return a Stripe checkout URL.");
+      if (!checkout.checkout_url) throw new Error("Unable to open the secure checkout page.");
       window.location.href = checkout.checkout_url;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to start credit checkout.");
@@ -117,7 +117,7 @@ function CreditsPurchase() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Buy credits</h1>
-          <p className="page-subtitle">Purchase SuperAdmin-generated credit packages for {activeAccount?.name ?? "the active account"}. Payment is handled by Billing and Stripe Checkout.</p>
+          <p className="page-subtitle">Add credits to {activeAccount?.name ?? "the active account"} and keep your content workflow moving without interruption.</p>
         </div>
         <span className="status-badge live">Balance {(balance ?? 0).toLocaleString()}</span>
       </div>
@@ -127,11 +127,11 @@ function CreditsPurchase() {
 
       <div className="card-grid with-top-gap">
         {packages.length ? packages.map((item) => (
-          <article className="feature-card" key={item.key}>
+          <article className="feature-card credit-package-card" key={item.key}>
             <PackageCheck size={24} color="var(--color-primary)" aria-hidden="true" />
             <h3>{item.key}</h3>
             <p>
-              SuperAdmin rate: {item.credits.toLocaleString()} credits for {money(item.price_cents, item.currency)}.
+              {item.credits.toLocaleString()} credits available at {money(item.price_cents, item.currency)}.
             </p>
             <div className="field with-top-gap">
               <label htmlFor={`credits-${item.key}`}>Credits to buy</label>
@@ -150,13 +150,16 @@ function CreditsPurchase() {
               />
             </div>
             <strong className="metric-value">{money(estimatedPrice(item), item.currency)}</strong>
-            <button className="button primary with-top-gap" type="button" onClick={() => void buyPackage(item)} disabled={busyPackage !== null}>
+            <div className="credit-package-actions with-top-gap"><button className="button primary compact" type="button" onClick={() => void buyPackage(item)} disabled={busyPackage !== null}>
               {busyPackage === item.key ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <CreditCard size={16} aria-hidden="true" />}
               {busyPackage === item.key ? "Opening checkout..." : `Buy ${selectedAmount(item).toLocaleString()} credits`}
-            </button>
+            </button></div>
           </article>
         )) : <div className="empty-state">No credit packages are configured yet.</div>}
       </div>
     </section>
   );
 }
+
+
+
