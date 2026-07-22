@@ -1,8 +1,8 @@
+import shutil
 from pathlib import Path
 from uuid import uuid4
 
-from werkzeug.datastructures import FileStorage
-from werkzeug.utils import secure_filename
+from fastapi import UploadFile
 
 from app.config import Settings
 from app.errors import ContentError
@@ -10,7 +10,15 @@ from app.errors import ContentError
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
 
 
-def save_upload(settings: Settings, file: FileStorage | None, account_id: str) -> str:
+def secure_filename(filename: str) -> str:
+    keep = []
+    for char in filename.strip().replace("\\", "/").split("/")[-1]:
+        keep.append(char if char.isalnum() or char in {".", "-", "_"} else "_")
+    cleaned = "".join(keep).strip("._")
+    return cleaned or "upload"
+
+
+def save_upload(settings: Settings, file: UploadFile | None, account_id: str) -> str:
     if not file or not file.filename:
         raise ContentError("missing_file", "Image file is required.", 422)
     filename = secure_filename(file.filename)
@@ -23,5 +31,7 @@ def save_upload(settings: Settings, file: FileStorage | None, account_id: str) -
         raise ContentError("invalid_upload_path", "Upload path is invalid.", 500)
     account_dir.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid4()}.{extension}"
-    file.save(account_dir / stored_name)
+    destination = account_dir / stored_name
+    with destination.open("wb") as output:
+        shutil.copyfileobj(file.file, output)
     return f"local://content/{account_id}/{stored_name}"
