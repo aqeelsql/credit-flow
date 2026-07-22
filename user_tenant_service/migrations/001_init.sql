@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS account_members (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     user_id UUID NOT NULL,
+    name VARCHAR(180),
     email VARCHAR(320) NOT NULL,
     role account_role NOT NULL,
     status member_status NOT NULL DEFAULT 'active',
@@ -52,6 +53,8 @@ CREATE TABLE IF NOT EXISTS account_members (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (account_id, user_id)
 );
+
+ALTER TABLE account_members ADD COLUMN IF NOT EXISTS name VARCHAR(180);
 
 CREATE INDEX IF NOT EXISTS ix_account_members_user_status ON account_members (user_id, status);
 CREATE INDEX IF NOT EXISTS ix_account_members_account_status ON account_members (account_id, status);
@@ -84,13 +87,13 @@ BEGIN
     END IF;
 
     IF to_regclass('accounts.account_members') IS NOT NULL THEN
-        INSERT INTO account_members (id, account_id, user_id, email, role, status, created_at, updated_at)
-        SELECT id, account_id, user_id, email, role::text::account_role, status::text::member_status, created_at, updated_at
+        INSERT INTO account_members (id, account_id, user_id, name, email, role, status, created_at, updated_at)
+        SELECT id, account_id, user_id, split_part(email, '@', 1), email, role::text::account_role, status::text::member_status, created_at, updated_at
         FROM accounts.account_members
         ON CONFLICT (account_id, user_id) DO NOTHING;
     ELSIF to_regclass('accounts.memberships') IS NOT NULL THEN
-        INSERT INTO account_members (id, account_id, user_id, email, role, status, created_at, updated_at)
-        SELECT id, account_id, user_id, email, role::text::account_role, status::text::member_status, created_at, updated_at
+        INSERT INTO account_members (id, account_id, user_id, name, email, role, status, created_at, updated_at)
+        SELECT id, account_id, user_id, split_part(email, '@', 1), email, role::text::account_role, status::text::member_status, created_at, updated_at
         FROM accounts.memberships
         ON CONFLICT (account_id, user_id) DO NOTHING;
     END IF;

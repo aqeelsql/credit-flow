@@ -96,8 +96,25 @@ def build_metadata(schema: str) -> MetaData:
         UniqueConstraint("account_id", "listing_id", name="uq_marketplace_escrow_account_listing"),
     )
 
+    credit_packages = Table(
+        "credit_packages",
+        metadata,
+        Column("id", UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")),
+        Column("key", String(80), nullable=False, unique=True),
+        Column("credits", Integer, nullable=False),
+        Column("price_cents", Integer, nullable=False),
+        Column("currency", String(8), nullable=False, server_default="usd"),
+        Column("active", Boolean, nullable=False, server_default=text("true")),
+        Column("created_by_user_id", String(128)),
+        Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
+        Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
+        CheckConstraint("credits > 0", name="ck_credit_packages_credits_positive"),
+        CheckConstraint("price_cents > 0", name="ck_credit_packages_price_positive"),
+    )
+
     Index("ix_invoices_account_created", invoices.c.account_id, invoices.c.created_at)
     Index("ix_outbox_unpublished", outbox_events.c.published, outbox_events.c.created_at)
     Index("ix_subscription_events_type_created", subscription_events.c.event_type, subscription_events.c.created_at)
+    Index("ix_credit_packages_active_created", credit_packages.c.active, credit_packages.c.created_at)
     return metadata
 

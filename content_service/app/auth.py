@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from flask import request
+from fastapi import Request
 
 from app.errors import ContentError
 
@@ -13,7 +13,7 @@ class Principal:
     email: str | None = None
 
 
-def current_principal() -> Principal:
+def current_principal(request: Request) -> Principal:
     user_id = request.headers.get("x-user-id")
     account_id = request.headers.get("x-account-id")
     role = request.headers.get("x-role")

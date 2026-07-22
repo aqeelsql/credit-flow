@@ -18,33 +18,22 @@ def extract_bearer_token(request: Request) -> str:
     return value[len(AUTH_HEADER_PREFIX) :].strip()
 
 
-def is_local_mock_token(token: str, settings: Settings) -> bool:
-    return settings.environment.lower() in {"local", "dev", "development"} and token.endswith(".mock-signature")
-
-
 async def authenticate_request(request: Request, settings: Settings, redis_state: RedisState) -> Principal:
     token = extract_bearer_token(request)
-    local_mock = is_local_mock_token(token, settings)
     audience = settings.jwt_audience or None
     decode_options = {
         "verify_aud": audience is not None,
         "verify_iss": settings.jwt_issuer is not None,
     }
     try:
-        if local_mock:
-            claims = decode(
-                token,
-                options={"verify_signature": False, "verify_exp": True, "verify_aud": False, "verify_iss": False},
-            )
-        else:
-            claims = decode(
-                token,
-                settings.jwt_key,
-                algorithms=settings.jwt_algorithms,
-                audience=audience,
-                issuer=settings.jwt_issuer,
-                options=decode_options,
-            )
+        claims = decode(
+            token,
+            settings.jwt_key,
+            algorithms=settings.jwt_algorithms,
+            audience=audience,
+            issuer=settings.jwt_issuer,
+            options=decode_options,
+        )
     except ExpiredSignatureError as exc:
         raise GatewayError("token_expired", "Access token has expired.", status.HTTP_401_UNAUTHORIZED) from exc
     except InvalidTokenError as exc:
@@ -63,7 +52,7 @@ async def authenticate_request(request: Request, settings: Settings, redis_state
             {"missing": missing},
         )
 
-    if not local_mock and (await redis_state.is_session_revoked(str(jti)) or not await redis_state.is_session_active(str(jti))):
+    if await redis_state.is_session_revoked(str(jti)) or not await redis_state.is_session_active(str(jti)):
         raise GatewayError("session_revoked", "Session has been revoked or is no longer active.", status.HTTP_401_UNAUTHORIZED)
 
     principal = Principal(

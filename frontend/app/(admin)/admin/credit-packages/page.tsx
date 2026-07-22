@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, PackagePlus, RefreshCw, Trash2 } from "lucide-react";
@@ -116,7 +116,7 @@ export default function AdminCreditPackagesPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Credit packages</h1>
-          <p className="page-subtitle">Create credit packages and pricing for account owners.</p>
+          <p className="page-subtitle">Create credit amounts and prices that Owners can purchase through Billing and Stripe Checkout.</p>
         </div>
         <button className="button secondary" type="button" onClick={() => void loadPackages()} disabled={loading}>
           <RefreshCw className={loading ? "spin" : ""} size={16} aria-hidden="true" />
@@ -179,7 +179,7 @@ export default function AdminCreditPackagesPage() {
             <tbody>
               {purchases.map((item) => (
                 <tr key={item.id}>
-                  <td className="mono">{item.account_id || "â€”"}</td>
+                  <td className="mono">{item.account_id || "—"}</td>
                   <td>{item.package_key || "Custom"}</td>
                   <td className="mono">+{item.credits.toLocaleString()}</td>
                   <td className="mono">{money(item.amount_paid, item.currency)}</td>
@@ -189,11 +189,8 @@ export default function AdminCreditPackagesPage() {
               ))}
             </tbody>
           </table>
-        ) : <div className="empty-state">No owner credit purchases yet.</div>}
+        ) : <div className="empty-state">No owner credit purchases yet. Stripe payments will appear here after checkout completion.</div>}
       </div>
     </section>
   );
 }
-
-
-

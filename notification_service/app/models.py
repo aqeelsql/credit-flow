@@ -16,7 +16,7 @@ def build_metadata(schema: str) -> MetaData:
         Column("recipient", String(320), nullable=False),
         Column("subject", Text),
         Column("status", String(40), nullable=False),
-        Column("provider", String(80), nullable=False, server_default="resend"),
+        Column("provider", String(80), nullable=False, server_default="smtp"),
         Column("provider_message_id", String(160)),
         Column("attempt", Integer, nullable=False, server_default="1"),
         Column("error", Text),
