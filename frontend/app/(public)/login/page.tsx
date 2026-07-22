@@ -21,7 +21,7 @@ export default function LoginPage() {
     try {
       const actualRole: AccountRole = await login(email, password);
       const next = new URLSearchParams(window.location.search).get("next");
-      router.push(next ?? (actualRole === "SuperAdmin" ? "/admin/usage" : actualRole === "Member" ? "/content-studio" : "/dashboard"));
+      router.push(next ?? (actualRole === "SuperAdmin" ? "/admin/directory" : actualRole === "Member" ? "/content-studio" : "/dashboard"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to enter the app.");
     } finally {
@@ -69,6 +69,9 @@ export default function LoginPage() {
             />
           </div>
           {error ? <div className="danger-note">{error}</div> : null}
+          <div className="auth-inline-action">
+            <Link className="link" href="/forgot-password">Forgot password?</Link>
+          </div>
           <button className="button primary" type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Entering..." : "Continue"}
           </button>
@@ -83,4 +86,5 @@ export default function LoginPage() {
     </main>
   );
 }
+
 

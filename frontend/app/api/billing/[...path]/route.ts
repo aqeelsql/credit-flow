@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 const BILLING_SERVICE_URL = process.env.BILLING_SERVICE_URL ?? "http://localhost:8006";
-const USE_LOCAL_AUTH = process.env.NEXT_PUBLIC_USE_LOCAL_AUTH !== "false";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,8 +40,7 @@ function forwardHeaders(request: NextRequest, hasBody: boolean, directBilling: b
 }
 
 async function proxyBilling(request: NextRequest, pathParts: string[] = []) {
-  const authorization = request.headers.get("authorization");
-  const directBilling = USE_LOCAL_AUTH || authorization?.endsWith(".mock-signature") || !API_BASE_URL;
+  const directBilling = !API_BASE_URL;
   const baseUrl = directBilling ? BILLING_SERVICE_URL : API_BASE_URL;
   const pathPrefix = directBilling ? "" : "/billing";
 

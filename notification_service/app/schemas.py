@@ -23,3 +23,13 @@ class NotificationLogItem(BaseModel):
 
 class NotificationLogResponse(BaseModel):
     items: list[NotificationLogItem]
+
+
+class TestEmailRequest(BaseModel):
+    recipient: str
+
+
+class TestEmailResponse(BaseModel):
+    status: str
+    recipient: str
+    provider_message_id: str | None = None

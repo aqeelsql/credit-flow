@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { CheckCircle, Download, ImagePlus, RadioTower, Save, Sparkles, Square, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle, Coins, Download, ImagePlus, RadioTower, Save, Sparkles, Square, Trash2, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useAuth } from "@/lib/auth-context";
@@ -15,6 +15,7 @@ type DraftItem = {
   status?: string;
   image_url?: string | null;
   image_asset_ref?: string | null;
+  source_generation_job_id?: string | null;
   metadata?: { has_image?: boolean } | null;
 };
 
@@ -22,11 +23,30 @@ type DraftListResponse = {
   items: DraftItem[];
 };
 
+type CreditBalance = {
+  account_id: string;
+  balance: number;
+  low_balance_threshold: number;
+  is_low_balance: boolean;
+};
+
+type CreditLedgerEntry = {
+  id: string;
+  account_id: string;
+  amount: number;
+  reason: string;
+  source_event_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+};
+
 const DEFAULT_PROMPT = "Write a LinkedIn post about account-scoped AI credit governance.";
 const SCRAPER_PROMPT_HANDOFF_KEY = "creditflow:scraper-prompt-handoff";
+const AI_CREDIT_EVENT_PREFIX = "content-studio-ai";
+const MIN_TEXT_GENERATION_CREDITS = 10;
 
 export function ContentStudio() {
-  const { activeAccount, accessToken, refreshAccessToken } = useAuth();
+  const { activeAccount, accessToken, session } = useAuth();
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [output, setOutput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -42,9 +62,15 @@ export function ContentStudio() {
   const [isDraftBusy, setIsDraftBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [showSavedDrafts, setShowSavedDrafts] = useState(false);
+  const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
+  const [generationUsage, setGenerationUsage] = useState<CreditLedgerEntry[]>([]);
+  const [isLoadingCredits, setIsLoadingCredits] = useState(false);
   const stopStreamRef = useRef<(() => void) | null>(null);
   const outputRef = useRef("");
   const generateImageAlsoRef = useRef(false);
+  const activeGenerationEventIdRef = useRef<string | null>(null);
+  const prepaidGenerationCreditsRef = useRef(0);
+  const activeGenerationJobIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => stopStreamRef.current?.();
@@ -53,6 +79,110 @@ export function ContentStudio() {
   useEffect(() => {
     generateImageAlsoRef.current = generateImageAlso;
   }, [generateImageAlso]);
+
+  const canViewAccountUsage = useMemo(() => session?.role === "Owner" || session?.role === "TenantAdmin", [session?.role]);
+
+  const aiCreditsUsed = useMemo(() => generationUsage.reduce((total, entry) => total + Math.abs(entry.amount), 0), [generationUsage]);
+
+  const estimateTokenCredits = (sourcePrompt: string, generatedText: string) => {
+    const estimatedTokens = Math.ceil(`${sourcePrompt}\n${generatedText}`.trim().length / 4);
+    return Math.max(1, estimatedTokens);
+  };
+
+  const metadataString = (metadata: Record<string, unknown> | null | undefined, keys: string[], fallback = "Unknown") => {
+    for (const key of keys) {
+      const value = metadata?.[key];
+      if (typeof value === "string" && value.trim()) return value;
+      if (typeof value === "number") return String(value);
+    }
+    return fallback;
+  };
+
+  const isUuid = (value: string | null) => Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value));
+
+  const loadCreditData = async () => {
+    if (!activeAccount || !accessToken) {
+      setCreditBalance(null);
+      setGenerationUsage([]);
+      return;
+    }
+    setIsLoadingCredits(true);
+    try {
+      const [balanceResponse, transactionsResponse] = await Promise.all([
+        fetch("/api/credits/balance", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          cache: "no-store"
+        }),
+        fetch("/api/credits/transactions?limit=100", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          cache: "no-store"
+        })
+      ]);
+
+      if (!balanceResponse.ok) {
+        const body = (await balanceResponse.json().catch(() => null)) as { error?: string | { message?: string } } | null;
+        const error = typeof body?.error === "string" ? body.error : body?.error?.message;
+        throw new Error(error || `Credits failed to load (${balanceResponse.status}).`);
+      }
+      setCreditBalance((await balanceResponse.json()) as CreditBalance);
+
+      if (!transactionsResponse.ok) {
+        const body = (await transactionsResponse.json().catch(() => null)) as { error?: string | { message?: string } } | null;
+        const error = typeof body?.error === "string" ? body.error : body?.error?.message;
+        throw new Error(error || `Generation usage failed to load (${transactionsResponse.status}).`);
+      }
+      const rows = (await transactionsResponse.json()) as CreditLedgerEntry[];
+      setGenerationUsage(rows.filter((row) => row.amount < 0 && row.metadata?.kind === "ai_generation"));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Credits failed to load.");
+    } finally {
+      setIsLoadingCredits(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadCreditData();
+  }, [activeAccount?.id, accessToken, canViewAccountUsage]);
+
+  const prepayGenerationCredits = async (sourcePrompt: string, eventId: string) => {
+    if (!activeAccount || !accessToken) {
+      return 0;
+    }
+
+    const creditsUsed = Math.max(MIN_TEXT_GENERATION_CREDITS, estimateTokenCredits(sourcePrompt, ""));
+
+    const response = await fetch("/api/credits/consume", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        amount: creditsUsed,
+        event_id: eventId,
+        reason: "ai_generation",
+        metadata: {
+          kind: "ai_generation",
+          service: "content_studio",
+          charge_timing: "before_generation",
+          user_id: session?.user_id,
+          user_email: session?.email,
+          role: session?.role,
+          prompt_preview: sourcePrompt.slice(0, 240),
+          token_estimate: creditsUsed,
+          credits_used: creditsUsed
+        }
+      })
+    });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: string | { message?: string } } | null;
+      const error = typeof body?.error === "string" ? body.error : body?.error?.message;
+      throw new Error(error || `Credit deduction failed (${response.status}).`);
+    }
+    setCreditBalance((await response.json()) as CreditBalance);
+    await loadCreditData();
+    return creditsUsed;
+  };
 
   const loadDrafts = async () => {
     if (!activeAccount || !accessToken) {
@@ -146,9 +276,28 @@ export function ContentStudio() {
       return;
     }
 
+    if (creditBalance && creditBalance.balance <= 0) {
+      setNotice("This account has no credits available. Please buy credits before generating AI content.");
+      return;
+    }
+
     const promptToUse = promptOverride ?? prompt;
     if (promptOverride) {
       setPrompt(promptOverride);
+    }
+
+    const eventId = `${AI_CREDIT_EVENT_PREFIX}:${crypto.randomUUID()}`;
+    activeGenerationEventIdRef.current = eventId;
+    activeGenerationJobIdRef.current = null;
+    let prepaidCredits = 0;
+    try {
+      prepaidCredits = await prepayGenerationCredits(promptToUse, eventId);
+      prepaidGenerationCreditsRef.current = prepaidCredits;
+    } catch (error) {
+      activeGenerationEventIdRef.current = null;
+      prepaidGenerationCreditsRef.current = 0;
+      setNotice(error instanceof Error ? error.message : "Credit deduction failed. Generation was not started.");
+      return;
     }
 
     stopStreamRef.current?.();
@@ -157,13 +306,18 @@ export function ContentStudio() {
     setImageUrl("");
     setImageDownloadUrl("");
     setHasImage(false);
-    setNotice("");
+    setNotice(`${prepaidCredits.toLocaleString()} credits deducted. Starting generation...`);
     setIsStreaming(true);
 
     stopStreamRef.current = streamAiGeneration({
       prompt: promptToUse,
       accountId: activeAccount.id,
+      requestId: eventId,
       accessToken,
+      onJobId: (jobId) => {
+        activeGenerationJobIdRef.current = jobId;
+        if (!activeGenerationEventIdRef.current) activeGenerationEventIdRef.current = `ai.generation_completed:${jobId}`;
+      },
       onToken: (token) => {
         outputRef.current += token;
         setOutput(outputRef.current);
@@ -171,13 +325,22 @@ export function ContentStudio() {
       onDone: () => {
         setIsStreaming(false);
         stopStreamRef.current = null;
-        if (generateImageAlsoRef.current) {
-          void generateImageFromText(outputRef.current);
-        }
+        void (async () => {
+          await loadCreditData();
+          setNotice(`Generation complete. ${prepaidGenerationCreditsRef.current.toLocaleString()} credits consumed.`);
+          activeGenerationEventIdRef.current = null;
+          prepaidGenerationCreditsRef.current = 0;
+          if (generateImageAlsoRef.current) {
+            void generateImageFromText(outputRef.current);
+          }
+        })();
       },
       onError: (message) => {
         setIsStreaming(false);
         setNotice(message);
+        activeGenerationEventIdRef.current = null;
+        activeGenerationJobIdRef.current = null;
+        prepaidGenerationCreditsRef.current = 0;
       }
     });
   };
@@ -220,6 +383,7 @@ export function ContentStudio() {
     setImageUrl("");
     setImageDownloadUrl("");
     setHasImage(false);
+    activeGenerationJobIdRef.current = null;
     setNotice("Draft closed. You can generate new content now.");
   };
 
@@ -240,6 +404,7 @@ export function ContentStudio() {
     setImageUrl(draft.image_url ?? "");
     setImageDownloadUrl("");
     setHasImage(draftHasImage(draft));
+    activeGenerationJobIdRef.current = draft.source_generation_job_id ?? null;
     setShowSavedDrafts(false);
     setNotice("Draft loaded for editing.");
   };
@@ -279,8 +444,17 @@ export function ContentStudio() {
           title: draftTitle || undefined,
           prompt,
           body: output,
+          source_generation_job_id: !isUpdating && isUuid(activeGenerationJobIdRef.current) ? activeGenerationJobIdRef.current : undefined,
           image_url: imageUrl || undefined,
-          has_image: hasImage
+          has_image: hasImage,
+          metadata: {
+            has_image: hasImage,
+            source: selectedDraftId ? "content_studio_update" : "content_studio_save",
+            ai_generation_event_id: activeGenerationEventIdRef.current,
+            source_generation_job_id: activeGenerationJobIdRef.current,
+            generated_by_user_id: session?.user_id,
+            generated_by_email: session?.email
+          }
         })
       });
       if (!response.ok) {
@@ -367,6 +541,19 @@ export function ContentStudio() {
         <span className={isStreaming ? "status-badge live" : "status-badge neutral"}>
           {isStreaming ? "Streaming" : "Idle"}
         </span>
+      </div>
+
+      <div className="credit-summary-row" aria-label="Credit summary">
+        <div className="credit-chip">
+          <Coins size={15} aria-hidden="true" />
+          <span>Total credits</span>
+          <strong>{isLoadingCredits && !creditBalance ? "..." : (creditBalance?.balance ?? activeAccount?.credits ?? 0).toLocaleString()}</strong>
+        </div>
+        <div className="credit-chip">
+          <Sparkles size={15} aria-hidden="true" />
+          <span>AI credits used</span>
+          <strong>{aiCreditsUsed.toLocaleString()}</strong>
+        </div>
       </div>
 
       <div className="studio-layout">
@@ -520,6 +707,43 @@ export function ContentStudio() {
           )}
         </div>
       </div>
+
+      {canViewAccountUsage ? (
+        <article className="panel with-top-gap">
+          <div className="panel-header">
+            <h2>Generation usage by user</h2>
+            <button className="button ghost" type="button" onClick={() => void loadCreditData()} disabled={isLoadingCredits}>
+              Refresh
+            </button>
+          </div>
+          {generationUsage.length ? (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Prompt</th>
+                  <th>Post preview</th>
+                  <th>Credits used</th>
+                  <th>Generated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {generationUsage.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>{metadataString(entry.metadata, ["user_email", "user_id"])}</td>
+                    <td>{metadataString(entry.metadata, ["prompt_preview"], "No prompt recorded")}</td>
+                    <td>{metadataString(entry.metadata, ["post_preview"], "No post preview recorded")}</td>
+                    <td>{Math.abs(entry.amount).toLocaleString()}</td>
+                    <td>{new Date(entry.created_at).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="empty-state">{isLoadingCredits ? "Loading usage..." : "No AI generation credit usage recorded yet."}</div>
+          )}
+        </article>
+      ) : null}
     </section>
   );
 }

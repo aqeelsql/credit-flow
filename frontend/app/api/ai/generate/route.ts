@@ -33,7 +33,7 @@ function streamHeaders(contentType = "text/event-stream; charset=utf-8") {
   };
 }
 
-async function gatewayStream(request: NextRequest, prompt: string, accountId: string | null) {
+async function gatewayStream(request: NextRequest, prompt: string, accountId: string | null, requestId: string | null) {
   if (!API_BASE_URL) return null;
   const upstreamUrl = new URL("/content/generate/stream", API_BASE_URL);
   if (accountId) upstreamUrl.searchParams.set("account_id", accountId);
@@ -44,6 +44,7 @@ async function gatewayStream(request: NextRequest, prompt: string, accountId: st
   const cookie = request.headers.get("cookie");
   if (authorization) headers.set("Authorization", authorization);
   if (cookie) headers.set("Cookie", cookie);
+  if (requestId) headers.set("x-request-id", requestId);
 
   const upstream = await fetch(upstreamUrl, { headers, cache: "no-store" });
   if (!upstream.ok || !upstream.body) return null;
@@ -129,13 +130,14 @@ async function directOpenRouterStream(prompt: string) {
 
 export async function GET(request: NextRequest) {
   const accountId = request.nextUrl.searchParams.get("account_id");
+  const requestId = request.nextUrl.searchParams.get("request_id");
   const prompt = request.nextUrl.searchParams.get("prompt")?.trim();
   if (!prompt) {
     return Response.json({ error: "Prompt is required." }, { status: 400 });
   }
 
   try {
-    const gateway = await gatewayStream(request, prompt.slice(0, MAX_LLM_PROMPT_CHARS), accountId);
+    const gateway = await gatewayStream(request, prompt.slice(0, MAX_LLM_PROMPT_CHARS), accountId, requestId);
     if (gateway) return gateway;
   } catch {
     // Fall back to direct local-dev LLM streaming below.

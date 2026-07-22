@@ -44,6 +44,7 @@ const adminNav: NavItem[] = [
   { href: "/admin/directory", label: "Directory", icon: Search, roles: ["SuperAdmin"] },
   { href: "/admin/credit-packages", label: "Credit packages", icon: WalletCards, roles: ["SuperAdmin"] },
   { href: "/admin/sessions", label: "Sessions", icon: Activity, roles: ["SuperAdmin", "TenantAdmin"] },
+  { href: "/admin/usage", label: "Ops dashboard", icon: WalletCards, roles: ["SuperAdmin", "TenantAdmin"] },
   { href: "/admin/audit-log", label: "Audit log", icon: FileClock, roles: ["SuperAdmin", "TenantAdmin"] }
 ];
 

@@ -52,6 +52,7 @@ class CreateAccountRequest(BaseModel):
 
 class InternalCreateIndividualRequest(BaseModel):
     email: EmailStr
+    name: str | None = Field(default=None, max_length=180)
     account_name: str | None = Field(default=None, max_length=180)
 
 
@@ -73,10 +74,22 @@ class AcceptInviteRequest(BaseModel):
     code: str = Field(min_length=16)
 
 
+class InternalValidateInviteRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=16)
+
+
+class InternalAcceptInviteRequest(BaseModel):
+    user_id: str
+    name: str | None = Field(default=None, max_length=180)
+    email: EmailStr
+    code: str = Field(min_length=16)
+
+
 class TeamMemberResponse(BaseModel):
     id: str
     user_id: str | None = None
-    name: str
+    name: str | None = None
     email: EmailStr
     role: AccountRole
     status: str
@@ -84,3 +97,20 @@ class TeamMemberResponse(BaseModel):
 
 class UpdateMemberRoleRequest(BaseModel):
     role: AccountRole
+
+
+class AdminAccountListItem(BaseModel):
+    id: str
+    name: str
+    type: AccountType
+    plan: str
+    credits: int
+    team_size: int
+    owner_name: str | None = None
+    owner_email: EmailStr | None = None
+    created_at: str
+    updated_at: str
+
+
+class AdminAccountListResponse(BaseModel):
+    items: list[AdminAccountListItem]

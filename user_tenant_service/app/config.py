@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql://creditflow:creditflow@localhost:5432/creditflow"
     database_schema: str = Field(default="user_tenant", validation_alias=user_tenant_env("DATABASE_SCHEMA"))
-    internal_service_token: str = Field(default="", repr=False)
+    internal_service_token: str = Field(default="", validation_alias=AliasChoices("USER_TENANT_INTERNAL_SERVICE_TOKEN", "INTERNAL_SERVICE_TOKEN", "ADMIN_INTERNAL_SERVICE_TOKEN"), repr=False)
 
     invite_ttl_seconds: int = Field(default=7 * 24 * 60 * 60, validation_alias=user_tenant_env("INVITE_TTL_SECONDS"))
     default_plan: str = Field(default="Starter", validation_alias=user_tenant_env("DEFAULT_PLAN"))

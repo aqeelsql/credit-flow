@@ -1,22 +1,13 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 import asyncpg
 
-_SCHEMA_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
 
 def _json(value: dict[str, Any] | None) -> str:
     return json.dumps(value or {}, default=str)
-
-
-def _schema_name(schema: str) -> str:
-    if not _SCHEMA_RE.match(schema):
-        raise ValueError("Invalid schema name")
-    return schema
 
 
 class AuditRepository:

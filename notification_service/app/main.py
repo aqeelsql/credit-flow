@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI):
 
     app.state.database = database
     app.state.event_bus = event_bus
+    app.state.email_client = email_client
     await database.connect()
     await event_bus.start_consuming()
     try:
