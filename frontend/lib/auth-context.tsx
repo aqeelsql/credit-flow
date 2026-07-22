@@ -11,6 +11,10 @@ type SignupResponse = {
   user_id: string;
   account_id?: string | null;
   message: string;
+  access_token?: string | null;
+  expires_in?: number | null;
+  role?: AccountRole | null;
+  jti?: string | null;
 };
 
 type TokenResponse = {
@@ -300,7 +304,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       method: "POST",
       body: JSON.stringify({ name: name.trim(), email: email.trim(), password, account_name: accountName || undefined, invite_code: inviteCode || undefined })
     });
-  }, []);
+    if (response.access_token) {
+      setToken(response.access_token);
+      await loadAccounts(response.access_token);
+    }
+    return response;
+  }, [loadAccounts, setToken]);
 
   const logout = useCallback(() => {
     void appRequest("/api/auth/logout", accessToken, { method: "POST", body: JSON.stringify({}) }).catch(() => undefined);

@@ -530,6 +530,12 @@ img {
   box-shadow: 0 14px 32px rgba(37, 99, 235, 0.24);
 }
 
+
+.auth-inline-action {
+  display: flex;
+  justify-content: flex-end;
+  font-size: 0.92rem;
+}
 .form-grid {
   display: grid;
   gap: 1rem;
@@ -3821,234 +3827,60 @@ textarea:focus {
   border-color: rgba(47, 128, 237, 0.62);
   box-shadow: 0 0 0 4px rgba(47, 128, 237, 0.13), 0 12px 28px rgba(41, 92, 168, 0.08);
 }
-
-/* Professional UI normalization: consistent cards, hover, buttons, and spacing. */
-:root {
-  --ui-hover-lift: -3px;
-  --ui-shadow-rest: 0 16px 42px rgba(41, 92, 168, 0.09);
-  --ui-shadow-hover: 0 22px 52px rgba(41, 92, 168, 0.13);
-  --ui-button-shadow: 0 8px 18px rgba(47, 128, 237, 0.14);
-  --ui-button-shadow-hover: 0 12px 24px rgba(47, 128, 237, 0.18);
-}
-
-.button,
-.icon-button,
-.search-button,
-.fc .fc-button-primary {
-  min-height: 40px;
-  border-radius: 12px;
-  gap: 0.45rem;
-  font-weight: 700;
-  box-shadow: var(--ui-button-shadow);
-  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease, color 160ms ease;
-}
-
-.button.compact {
-  min-height: 38px;
-  padding: 0.58rem 0.95rem;
-  font-size: 0.9rem;
-}
-
-.button:hover,
-.icon-button:hover,
-.search-button:hover,
-.fc .fc-button-primary:not(:disabled):hover {
-  transform: translateY(-1px);
-  box-shadow: var(--ui-button-shadow-hover);
-}
-
-.button.primary,
-.icon-button.primary,
-.search-button,
-.fc .fc-button-primary,
-.fc .fc-event {
-  background: linear-gradient(135deg, #4f9cf5 0%, #2f80ed 55%, #246fd6 100%);
-  box-shadow: var(--ui-button-shadow);
-}
-
-.button.primary:hover,
-.icon-button.primary:hover,
-.search-button:hover,
-.fc .fc-button-primary:not(:disabled):hover,
-.fc .fc-button-primary:not(:disabled).fc-button-active {
-  background: linear-gradient(135deg, #5da6f7 0%, #2f80ed 52%, #1f66cf 100%);
-  box-shadow: var(--ui-button-shadow-hover);
-}
-
-.button.secondary,
-.icon-button.secondary,
-.button.ghost,
-.icon-button.ghost {
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
-}
-
-.feature-card,
-.price-card,
-.panel,
-.auth-card,
-.metric-card,
-.table-panel,
-.calendar-shell,
-.connection-card,
-.draft-item,
-.schedule-item,
-.modal,
-.role-choice,
-.plan-card,
-.billing-card,
-.research-source-card {
-  border-radius: 22px;
-  box-shadow: var(--ui-shadow-rest), inset 0 1px 0 rgba(255, 255, 255, 0.82);
-  transition: transform 170ms ease, box-shadow 170ms ease, border-color 170ms ease;
-}
-
-.feature-card:hover,
-.price-card:hover,
-.panel:hover,
-.metric-card:hover,
-.connection-card:hover,
-.draft-item:hover,
-.schedule-item:hover,
-.role-choice:hover,
-.research-source-card:hover,
-.hero-search-panel:hover,
-.workflow-card.compact:hover,
-.workflow-metric-row div:hover,
-.hero-product-stack:hover .workflow-card {
-  border-color: rgba(47, 128, 237, 0.18);
-  box-shadow: var(--ui-shadow-hover), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  transform: translateY(var(--ui-hover-lift));
-}
-
-.card-grid,
-.metric-grid,
-.admin-grid,
-.split-layout {
-  align-items: stretch;
-}
-
-.card-grid > *,
-.metric-grid > *,
-.admin-grid > * {
-  min-width: 0;
-}
-
-.feature-card,
-.price-card,
-.metric-card,
-.connection-card,
-.research-source-card,
-.panel {
-  overflow: hidden;
-}
-
-.metric-card {
-  min-height: 164px;
+/* Compact credit summary used by Content Studio. */
+.credit-summary-row {
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin: 0.75rem 0 1.1rem;
 }
 
-.feature-card {
-  min-height: 260px;
-  display: flex;
-  flex-direction: column;
-}
-
-.feature-card .field,
-.credit-package-card .field {
-  margin-top: auto;
-}
-
-.credit-package-card {
-  gap: 0.85rem;
-}
-
-.credit-package-card .metric-value {
-  margin-top: 0.35rem;
-  font-size: 1.25rem;
-  color: var(--color-ink);
-}
-
-.credit-package-actions {
-  display: flex;
-  justify-content: flex-start;
+.credit-chip {
+  display: inline-flex;
   align-items: center;
+  gap: 0.45rem;
+  min-height: 2.35rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid rgba(59, 130, 246, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 30px rgba(37, 99, 235, 0.08);
+  color: #0f172a;
+  font-size: 0.82rem;
+  font-weight: 800;
 }
 
-.credit-package-actions .button {
-  width: auto;
-  max-width: max-content;
+.credit-chip svg {
+  color: var(--color-primary);
+  flex: 0 0 auto;
 }
 
-.page-subtitle,
-.panel p,
-.feature-card p,
-.price-card p,
-.metric-card p,
-.connection-card p,
-.muted-text,
-.empty-state {
-  line-height: 1.55;
+.credit-chip span {
+  color: #64748b;
 }
 
-.data-table tbody tr:hover {
-  background: rgba(47, 128, 237, 0.045);
-}
-/* Final polish for dashboard, studio, calendar, scraper, and LinkedIn spacing. */
-.dashboard-panels {
-  align-items: stretch;
+.credit-chip strong {
+  font-size: 1rem;
+  letter-spacing: -0.02em;
 }
 
-.dashboard-panels > .panel {
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
+.review-post-body {
+  max-height: 22rem;
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 1.25rem;
+  background: rgba(255, 255, 255, 0.72);
+  white-space: pre-wrap;
 }
 
-.dashboard-panels > .panel .button-row {
-  margin-top: auto;
+.review-post-body h3 {
+  margin-bottom: 0.7rem;
+  font-size: 1.05rem;
 }
 
-.connection-card + .table-panel {
-  margin-top: 1.35rem;
-}
-/* Content Studio: keep prompt and live output cards balanced. */
-.studio-layout {
-  align-items: stretch;
+.review-post-body p {
+  color: var(--color-ink-muted);
+  line-height: 1.7;
 }
 
-.studio-layout > .stack {
-  display: flex;
-  min-width: 0;
-}
-
-.studio-layout > .stack > .panel {
-  width: 100%;
-}
-
-.studio-layout .stream-output {
-  min-height: 20rem;
-}
-/* Calendar: align the scheduling form with the calendar and separate upcoming posts. */
-.calendar-layout {
-  align-items: stretch;
-}
-
-.calendar-layout > .panel,
-.calendar-layout > .calendar-shell {
-  min-height: 720px;
-  height: 100%;
-}
-
-.calendar-layout + .notice + .panel,
-.calendar-layout + .panel {
-  margin-top: 1.75rem;
-}
-
-@media (max-width: 900px) {
-  .calendar-layout > .panel,
-  .calendar-layout > .calendar-shell {
-    min-height: auto;
-  }
-}

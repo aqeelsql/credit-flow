@@ -14,6 +14,11 @@ class SignupResponse(BaseModel):
     user_id: str
     account_id: str | None = None
     message: str
+    access_token: str | None = None
+    token_type: str = "Bearer"
+    expires_in: int | None = None
+    role: str | None = None
+    jti: str | None = None
 
 
 class VerifyEmailRequest(BaseModel):

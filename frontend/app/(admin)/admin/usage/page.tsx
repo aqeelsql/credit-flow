@@ -99,10 +99,19 @@ export default function UsagePage() {
     setLoading(true);
     setError(null);
     try {
-      setOverview(await adminFetch<AdminAccountOverview>(`/accounts/${encodeURIComponent(targetAccountId)}/overview`, accessToken));
+      if (isSuperAdmin) {
+        setPlatformOverview(await adminFetch<AdminPlatformOverview>("/platform/overview?limit=100", accessToken));
+        setOverview(null);
+      } else {
+        const targetAccountId = (accountId || activeAccount?.id || "").trim();
+        if (!targetAccountId) throw new Error("No active account selected.");
+        setOverview(await adminFetch<AdminAccountOverview>(`/accounts/${encodeURIComponent(targetAccountId)}/overview`, accessToken));
+        setPlatformOverview(null);
+      }
     } catch (err) {
       setOverview(null);
-      setError(err instanceof Error ? err.message : "Unable to load account usage.");
+      setPlatformOverview(null);
+      setError(err instanceof Error ? err.message : "Unable to load operations data.");
     } finally {
       setLoading(false);
     }
@@ -133,6 +142,11 @@ export default function UsagePage() {
     const ratio = quota > 0 ? Math.min(Math.round((tokens / quota) * 100), 100) : 0;
     return { balance, quota, tokens, remainingTokens, cost, ratio };
   }, [overview]);
+
+  const platformTotals = platformOverview?.totals ?? {};
+  const globalUsage = platformOverview?.global_usage ?? null;
+  const platformTokens = numberFromRecord(globalUsage, ["used_tokens", "tokens_used", "total_tokens"]) || Number(platformTotals.tokens_used ?? 0);
+  const platformCost = numberFromRecord(globalUsage, ["total_cost", "cost"]) || Number(platformTotals.usage_cost ?? 0);
 
   return (
     <section className="page">
@@ -191,6 +205,15 @@ export default function UsagePage() {
           Refresh
         </button>
       </div>
+
+      {!isSuperAdmin ? (
+        <div className="panel search-row">
+          <div className="field">
+            <label htmlFor="ops-account">Account ID</label>
+            <input id="ops-account" value={accountId} onChange={(event) => setAccountId(event.target.value)} placeholder="Account to inspect" disabled={!!activeAccount?.id} />
+          </div>
+        </div>
+      ) : null}
 
       {error ? <div className="danger-note with-top-gap">{error}</div> : null}
 

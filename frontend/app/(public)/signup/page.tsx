@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { KeyRound, UserPlus } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
@@ -8,6 +9,7 @@ import { useAuth } from "@/lib/auth-context";
 type SignupMode = "owner" | "invite";
 
 export default function SignupPage() {
+  const router = useRouter();
   const { signup } = useAuth();
   const [mode, setMode] = useState<SignupMode>("owner");
   const [name, setName] = useState("");
@@ -113,6 +115,9 @@ export default function SignupPage() {
           </div>
           {error ? <div className="danger-note">{error}</div> : null}
           {message ? <div className="success-note">{message}</div> : null}
+          <div className="auth-inline-action">
+            <Link className="link" href="/forgot-password">Forgot password?</Link>
+          </div>
           <button className="button primary" type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Creating account..." : mode === "invite" ? "Accept invite and create account" : "Create owner account"}
           </button>
@@ -127,3 +132,5 @@ export default function SignupPage() {
     </main>
   );
 }
+
+
