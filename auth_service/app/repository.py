@@ -32,6 +32,7 @@ class AuthRepository:
             """
             SELECT
                 u.id::text AS id,
+                u.name,
                 u.email,
                 u.status::text AS status,
                 u.email_verified_at,
@@ -47,7 +48,7 @@ class AuthRepository:
     async def get_user_by_id(self, user_id: str) -> dict[str, Any] | None:
         row = await self.conn.fetchrow(
             """
-            SELECT id::text AS id, email, status::text AS status, email_verified_at
+            SELECT id::text AS id, name, email, status::text AS status, email_verified_at
             FROM users
             WHERE id = $1
             """,
@@ -55,20 +56,24 @@ class AuthRepository:
         )
         return _as_dict(row)
 
-    async def create_user_with_credential(self, email: str, password_hash: str) -> dict[str, Any]:
+    async def create_user_with_credential(self, email: str, password_hash: str, *, name: str | None = None, active: bool = False) -> dict[str, Any]:
         user_id = uuid.uuid4()
         credential_id = uuid.uuid4()
         now = utcnow()
+        status = UserStatus.ACTIVE.value if active else UserStatus.PENDING_VERIFICATION.value
+        email_verified_at = now if active else None
         try:
             user = await self.conn.fetchrow(
                 """
-                INSERT INTO users (id, email, status, email_verified_at, created_at, updated_at)
-                VALUES ($1, $2, $3::user_status, $4, $4, $4)
-                RETURNING id::text AS id, email, status::text AS status, email_verified_at, created_at
+                INSERT INTO users (id, name, email, status, email_verified_at, created_at, updated_at)
+                VALUES ($1, $2, $3, $4::user_status, $5, $6, $6)
+                RETURNING id::text AS id, name, email, status::text AS status, email_verified_at, created_at
                 """,
                 user_id,
+                name.strip() if name else None,
                 email.lower(),
-                UserStatus.ACTIVE.value,
+                status,
+                email_verified_at,
                 now,
             )
             await self.conn.execute(
@@ -86,6 +91,18 @@ class AuthRepository:
         if user is None:
             raise AuthError("signup_failed", "Unable to create the user account.", 500)
         return dict(user)
+
+    async def update_user_name(self, user_id: str, name: str) -> None:
+        await self.conn.execute(
+            """
+            UPDATE users
+            SET name = $1, updated_at = $2
+            WHERE id = $3
+            """,
+            name.strip(),
+            utcnow(),
+            _uuid(user_id),
+        )
 
     async def activate_user(self, user_id: str) -> dict[str, Any]:
         now = utcnow()
@@ -105,6 +122,20 @@ class AuthRepository:
         if user is None:
             raise AuthError("activation_failed", "Unable to activate account.", 500)
         return dict(user)
+
+    async def set_user_password(self, user_id: str, password_hash: str) -> None:
+        await self.conn.execute(
+            """
+            INSERT INTO credentials (id, user_id, password_hash, password_changed_at, created_at)
+            VALUES ($1, $2, $3, $4, $4)
+            ON CONFLICT (user_id)
+            DO UPDATE SET password_hash = EXCLUDED.password_hash, password_changed_at = EXCLUDED.password_changed_at
+            """,
+            uuid.uuid4(),
+            _uuid(user_id),
+            password_hash,
+            utcnow(),
+        )
 
     async def create_email_verification_token(self, user_id: str, token_hash: str, expires_at: datetime) -> dict[str, Any]:
         row = await self.conn.fetchrow(

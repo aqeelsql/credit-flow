@@ -23,10 +23,11 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql://creditflow:creditflow@localhost:5432/creditflow"
     database_schema: str = Field(default="credits", validation_alias=credits_env("DATABASE_SCHEMA"))
-    internal_service_token: str = Field(default="", repr=False)
+    internal_service_token: str = Field(default="", validation_alias=AliasChoices("CREDITS_INTERNAL_SERVICE_TOKEN", "INTERNAL_SERVICE_TOKEN", "ADMIN_INTERNAL_SERVICE_TOKEN"), repr=False)
 
     rabbitmq_url: str = "amqp://guest:guest@localhost/"
     rabbitmq_exchange: str = "creditflow.events"
+    rabbitmq_exchanges: str = Field(default="creditflow.events,billing_events", validation_alias=credits_env("RABBITMQ_EXCHANGES"))
     rabbitmq_queue: str = Field(default="creditflow.credits_service", validation_alias=credits_env("RABBITMQ_QUEUE"))
 
     billing_service_url: str = "http://localhost:8006"
@@ -42,6 +43,13 @@ class Settings(BaseSettings):
     @property
     def is_local(self) -> bool:
         return self.environment.lower() in {"local", "dev", "development", "test"}
+
+    @property
+    def exchanges(self) -> list[str]:
+        values = [exchange.strip() for exchange in self.rabbitmq_exchanges.split(",") if exchange.strip()]
+        if self.rabbitmq_exchange and self.rabbitmq_exchange not in values:
+            values.insert(0, self.rabbitmq_exchange)
+        return values
 
 
 @lru_cache

@@ -7,7 +7,7 @@ from app.events import EventBus
 from app.schemas import Principal
 
 OWNER_ROLES = {"Owner"}
-ACCOUNT_ROLES = {"Owner", "TenantAdmin", "Member"}
+ACCOUNT_ROLES = {"Owner", "TenantAdmin", "Member", "SuperAdmin"}
 
 
 def settings_dep() -> Settings:

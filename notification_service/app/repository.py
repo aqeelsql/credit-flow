@@ -33,7 +33,7 @@ class NotificationRepository:
     async def mark_event_unprocessed(self, event_id: str) -> None:
         await self.conn.execute("DELETE FROM processed_events WHERE event_id = $1 AND processed = false", event_id)
 
-    async def log_attempt(self, *, event_id: str, event_type: str, notification_type: str, channel: str, recipient: str, subject: str | None, status: str, provider: str = "resend", provider_message_id: str | None = None, attempt: int = 1, error: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def log_attempt(self, *, event_id: str, event_type: str, notification_type: str, channel: str, recipient: str, subject: str | None, status: str, provider: str = "smtp", provider_message_id: str | None = None, attempt: int = 1, error: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         row = await self.conn.fetchrow(
             """
             INSERT INTO notification_log (event_id, event_type, notification_type, channel, recipient, subject, status, provider, provider_message_id, attempt, error, metadata, created_at)

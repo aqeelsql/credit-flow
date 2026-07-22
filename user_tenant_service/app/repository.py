@@ -73,6 +73,7 @@ class AccountRepository:
         email: str,
         account_type: AccountType,
         name: str,
+        user_name: str | None = None,
     ) -> dict[str, Any]:
         account_id = uuid.uuid4()
         now = utcnow()
@@ -92,13 +93,14 @@ class AccountRepository:
         )
         member_row = await self.conn.fetchrow(
             """
-            INSERT INTO account_members (id, account_id, user_id, email, role, status, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5::account_role, $6::member_status, $7, $7)
+            INSERT INTO account_members (id, account_id, user_id, name, email, role, status, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6::account_role, $7::member_status, $8, $8)
             RETURNING id::text AS member_id
             """,
             uuid.uuid4(),
             account_id,
             _uuid(user_id),
+            user_name.strip() if user_name else email.split("@", 1)[0],
             email.lower(),
             AccountRole.OWNER.value,
             MemberStatus.ACTIVE.value,
@@ -113,7 +115,7 @@ class AccountRepository:
         result["_created"] = True
         return result
 
-    async def ensure_individual_account(self, user_id: str, email: str, account_name: str | None = None) -> dict[str, Any]:
+    async def ensure_individual_account(self, user_id: str, email: str, account_name: str | None = None, user_name: str | None = None) -> dict[str, Any]:
         existing = await self.conn.fetchrow(
             """
             SELECT
@@ -146,7 +148,7 @@ class AccountRepository:
             result["_created"] = False
             return result
         default_name = account_name or f"{email.split('@', 1)[0]}'s Studio"
-        return await self.create_account_with_owner(user_id, email, AccountType.INDIVIDUAL, default_name)
+        return await self.create_account_with_owner(user_id, email, AccountType.INDIVIDUAL, default_name, user_name)
 
     async def get_active_membership(self, account_id: str, user_id: str) -> dict[str, Any] | None:
         row = await self.conn.fetchrow(
@@ -166,7 +168,7 @@ class AccountRepository:
             SELECT
                 id::text AS id,
                 user_id::text AS user_id,
-                split_part(email, '@', 1) AS name,
+                COALESCE(name, split_part(email, '@', 1)) AS name,
                 email,
                 role::text AS role,
                 status::text AS status
@@ -199,6 +201,52 @@ class AccountRepository:
             _uuid(account_id),
         )
         return _as_dict(row)
+
+    async def list_accounts_for_admin(self, *, q: str | None = None, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        params: list[Any] = []
+        clauses: list[str] = []
+        if q and q.strip():
+            params.append(f"%{q.strip()}%")
+            clauses.append(
+                f"(a.id::text ILIKE ${len(params)} OR a.name ILIKE ${len(params)} OR owner.email ILIKE ${len(params)} OR owner.name ILIKE ${len(params)})"
+            )
+        where_sql = "WHERE " + " AND ".join(clauses) if clauses else ""
+        params.extend([limit, offset])
+        rows = await self.conn.fetch(
+            f"""
+            SELECT
+                a.id::text AS id,
+                a.name,
+                a.type::text AS type,
+                a.plan,
+                a.credits,
+                COALESCE(active_members.team_size, 0)::int AS team_size,
+                COALESCE(owner.name, split_part(owner.email, '@', 1)) AS owner_name,
+                owner.email AS owner_email,
+                a.created_at::text AS created_at,
+                a.updated_at::text AS updated_at
+            FROM accounts a
+            LEFT JOIN LATERAL (
+                SELECT count(*) AS team_size
+                FROM account_members tm
+                WHERE tm.account_id = a.id AND tm.status = 'active'::member_status
+            ) active_members ON true
+            LEFT JOIN LATERAL (
+                SELECT name, email
+                FROM account_members om
+                WHERE om.account_id = a.id
+                  AND om.role = 'Owner'::account_role
+                  AND om.status = 'active'::member_status
+                ORDER BY om.created_at ASC
+                LIMIT 1
+            ) owner ON true
+            {where_sql}
+            ORDER BY a.created_at DESC
+            LIMIT ${len(params) - 1} OFFSET ${len(params)}
+            """,
+            *params,
+        )
+        return [dict(row) for row in rows]
 
     async def create_invite(self, account_id: str, email: str, role: AccountRole, created_by_user_id: str) -> tuple[dict[str, Any], str]:
         if role == AccountRole.OWNER:
@@ -235,7 +283,7 @@ class AccountRepository:
             raise AccountError("invite_create_failed", "Unable to create invite.", 500)
         return dict(row), code
 
-    async def accept_invite(self, code: str, user_id: str) -> dict[str, Any]:
+    async def accept_invite(self, code: str, user_id: str, user_email: str | None, user_name: str | None = None) -> dict[str, Any]:
         invite = await self.conn.fetchrow(
             """
             SELECT id::text AS id, account_id::text AS account_id, email, role::text AS role, status::text AS status, expires_at
@@ -249,6 +297,10 @@ class AccountRepository:
         )
         if invite is None or invite["status"] != InviteStatus.PENDING.value:
             raise AccountError("invalid_invite", "Invite code is invalid.", 400)
+        if not user_email:
+            raise AccountError("invite_email_required", "Authenticated user email is required to accept an invite.", 403)
+        if invite["email"].lower() != user_email.lower():
+            raise AccountError("invite_email_mismatch", "This invite was sent to a different email address.", 403)
         expires_at = invite["expires_at"]
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
@@ -264,15 +316,23 @@ class AccountRepository:
         try:
             member = await self.conn.fetchrow(
                 """
-                INSERT INTO account_members (id, account_id, user_id, email, role, status, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5::account_role, $6::member_status, $7, $7)
+                INSERT INTO account_members (id, account_id, user_id, name, email, role, status, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6::account_role, $7::member_status, $8, $8)
                 ON CONFLICT (account_id, user_id)
-                DO UPDATE SET role = EXCLUDED.role, status = EXCLUDED.status, updated_at = EXCLUDED.updated_at
+                DO UPDATE SET
+                    name = COALESCE(EXCLUDED.name, account_members.name),
+                    role = CASE
+                        WHEN account_members.role = 'Owner'::account_role THEN account_members.role
+                        ELSE EXCLUDED.role
+                    END,
+                    status = EXCLUDED.status,
+                    updated_at = EXCLUDED.updated_at
                 RETURNING id::text AS member_id, email, role::text AS role
                 """,
                 uuid.uuid4(),
                 _uuid(invite["account_id"]),
                 _uuid(user_id),
+                user_name.strip() if user_name else invite["email"].split("@", 1)[0],
                 invite["email"].lower(),
                 invite["role"],
                 MemberStatus.ACTIVE.value,
@@ -299,6 +359,41 @@ class AccountRepository:
         account["invite_id"] = invite["id"]
         return account
 
+    async def validate_invite_for_email(self, code: str, email: str) -> dict[str, Any]:
+        invite = await self.conn.fetchrow(
+            """
+            SELECT
+                invites.id::text AS invite_id,
+                invites.account_id::text AS account_id,
+                accounts.name AS account_name,
+                invites.email,
+                invites.role::text AS role,
+                invites.status::text AS status,
+                invites.expires_at
+            FROM invites
+            JOIN accounts ON accounts.id = invites.account_id
+            WHERE invites.code_hash = $1
+            ORDER BY invites.created_at DESC
+            LIMIT 1
+            """,
+            hash_code(code),
+        )
+        if invite is None or invite["status"] != InviteStatus.PENDING.value:
+            raise AccountError("invalid_invite", "Invite code is invalid.", 400)
+        if invite["email"].lower() != email.lower():
+            raise AccountError("invite_email_mismatch", "This invite was sent to a different email address.", 403)
+        expires_at = invite["expires_at"]
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= utcnow():
+            await self.conn.execute(
+                "UPDATE invites SET status = $1::invite_status WHERE id = $2",
+                InviteStatus.EXPIRED.value,
+                _uuid(invite["invite_id"]),
+            )
+            raise AccountError("expired_invite", "Invite code has expired.", 400)
+        return dict(invite)
+
     async def account_for_user(self, account_id: str, user_id: str) -> dict[str, Any] | None:
         row = await self.conn.fetchrow(
             """
@@ -306,6 +401,7 @@ class AccountRepository:
                 a.id::text AS id,
                 a.name,
                 a.type::text AS type,
+                COALESCE(m.name, split_part(m.email, '@', 1)) AS member_name,
                 m.role::text AS role,
                 a.plan,
                 a.credits,
@@ -332,7 +428,7 @@ class AccountRepository:
             UPDATE account_members
             SET role = $1::account_role, updated_at = $2
             WHERE id = $3 AND account_id = $4 AND status = 'active'::member_status AND role <> 'Owner'::account_role
-            RETURNING id::text AS id, user_id::text AS user_id, split_part(email, '@', 1) AS name, email, role::text AS role, status::text AS status
+            RETURNING id::text AS id, user_id::text AS user_id, COALESCE(name, split_part(email, '@', 1)) AS name, email, role::text AS role, status::text AS status
             """,
             role.value,
             utcnow(),
@@ -349,7 +445,7 @@ class AccountRepository:
             UPDATE account_members
             SET status = $1::member_status, updated_at = $2
             WHERE id = $3 AND account_id = $4 AND role <> 'Owner'::account_role
-            RETURNING id::text AS id, user_id::text AS user_id, split_part(email, '@', 1) AS name, email, role::text AS role, status::text AS status
+            RETURNING id::text AS id, user_id::text AS user_id, COALESCE(name, split_part(email, '@', 1)) AS name, email, role::text AS role, status::text AS status
             """,
             MemberStatus.REMOVED.value,
             utcnow(),
