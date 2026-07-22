@@ -1,6 +1,6 @@
 # CreditFlow Content Service
 
-Flask service for generated and manually authored content.
+FastAPI service for generated and manually authored content.
 
 ## Responsibilities
 
@@ -18,21 +18,21 @@ Flask service for generated and manually authored content.
 - `POST /drafts` - create a draft.
 - `GET /drafts` - list active drafts for the current account.
 - `GET /items` - list active content, optionally filtered by `status`.
-- `GET /items/<content_id>` - fetch one content item in the current account.
-- `PATCH /items/<content_id>` - edit draft/approved content and create a new version.
-- `DELETE /items/<content_id>` - soft-delete content.
-- `POST /items/<content_id>/status` - server-side status transition.
-- `POST /items/<content_id>/approve` - approve content for scheduling/publishing.
-- `POST /items/<content_id>/publish` - mark content as published.
-- `GET /items/<content_id>/versions` - list edit history.
-- `POST /items/<content_id>/image` - multipart manual image upload.
+- `GET /items/{content_id}` - fetch one content item in the current account.
+- `PATCH /items/{content_id}` - edit draft/approved content and create a new version.
+- `DELETE /items/{content_id}` - soft-delete content.
+- `POST /items/{content_id}/status` - server-side status transition.
+- `POST /items/{content_id}/approve` - approve content for scheduling/publishing.
+- `POST /items/{content_id}/publish` - mark content as published.
+- `GET /items/{content_id}/versions` - list edit history.
+- `POST /items/{content_id}/image` - multipart manual image upload.
 
 ## Run locally
 
 ```powershell
 cd content_service
 py -m pip install -r requirements.txt
-py -m flask --app app.main:app run --host 127.0.0.1 --port 8003
+py -m uvicorn app.main:app --reload --port 8003
 ```
 
 The gateway already proxies `/content/*` to `GATEWAY_CONTENT_SERVICE_URL`.
