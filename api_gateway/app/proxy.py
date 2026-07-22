@@ -1,4 +1,4 @@
-from urllib.parse import urljoin
+﻿from urllib.parse import urljoin
 
 import httpx
 from fastapi import Request, Response
@@ -29,7 +29,8 @@ OWNER_ONLY = {
 }
 
 MEMBER_ALLOWED_SERVICES = {"content", "calendar", "linkedin", "ai", "scraper"}
-SUPERADMIN_ONLY_SERVICES = {"admin"}
+SUPERADMIN_ONLY_SERVICES: set[str] = set()
+ADMIN_ALLOWED_SERVICES = {"admin"}
 
 
 def _strip_path(path: str) -> str:
@@ -43,12 +44,22 @@ def is_public_auth_path(service_key: str, path: str, settings: Settings) -> bool
     return clean_path in settings.public_auth_paths
 
 
+def is_billing_admin_path(service_key: str, path: str) -> bool:
+    return service_key == "billing" and _strip_path(path).startswith("admin/")
+
+
 async def authenticate_for_proxy(request: Request, service_key: str, path: str, settings: Settings, redis_state: RedisState) -> Principal | None:
     if is_public_auth_path(service_key, path, settings):
         return None
     principal = await authenticate_request(request, settings, redis_state)
-    if service_key in SUPERADMIN_ONLY_SERVICES:
+    if is_billing_admin_path(service_key, path):
         enforce_roles(principal, {"SuperAdmin"})
+    elif service_key in SUPERADMIN_ONLY_SERVICES:
+        enforce_roles(principal, {"SuperAdmin"})
+    elif service_key in ADMIN_ALLOWED_SERVICES:
+        enforce_roles(principal, {"SuperAdmin", "TenantAdmin"})
+        if principal.role != "SuperAdmin":
+            require_account(principal)
     elif service_key in MEMBER_ALLOWED_SERVICES:
         enforce_roles(principal, {"Owner", "TenantAdmin", "Member"})
         require_account(principal)
@@ -89,7 +100,12 @@ async def proxy_request(request: Request, service_key: str, path: str, settings:
         raise GatewayError("route_not_configured", f"No downstream service configured for {service_key}.", 502)
 
     principal = await authenticate_for_proxy(request, service_key, path, settings, redis_state)
-    target = urljoin(service_url.rstrip("/") + "/", path.lstrip("/"))
+    if service_key == "admin":
+        admin_base_already_prefixed = service_url.rstrip("/").endswith("/admin")
+        downstream_path = path if admin_base_already_prefixed else f"admin/{path.lstrip('/')}"
+    else:
+        downstream_path = path
+    target = urljoin(service_url.rstrip("/") + "/", downstream_path.lstrip("/"))
     body = await request.body()
     headers = build_forward_headers(request, principal)
 
