@@ -44,7 +44,13 @@ Expected env:
 MONGODB_URL=mongodb://localhost:27017/creditflow_scraper
 SCRAPER_MONGODB_DATABASE=creditflow_scraper
 SCRAPER_MONGODB_COLLECTION=scraped_documents
-SCRAPER_RESEARCH_SEARCH_ENDPOINT=https://www.bing.com/news/search
+SCRAPER_SERPAPI_API_KEY=your_serpapi_key
+SCRAPER_SERPAPI_SEARCH_ENDPOINT=https://serpapi.com/search.json
+SCRAPER_SERPAPI_ENGINE=google
+SCRAPER_SERPAPI_GL=us
+SCRAPER_SERPAPI_HL=en
+SCRAPER_SERPAPI_GOOGLE_DOMAIN=google.com
+SCRAPER_SERPAPI_TBM=
 SCRAPER_CONTENT_SERVICE_URL=http://localhost:8003
 ```
 
@@ -59,12 +65,13 @@ MongoDB collections owned by this service:
 
 ## Topic research flow
 
-1. User enters a topic such as `latest stock market news for fintech founders`.
-2. Scraper discovers source URLs using the configured RSS/news search endpoint.
-3. Scraper crawls the discovered sources while respecting `robots.txt`.
-4. Scraped results are saved as a MongoDB research pack.
-5. User can click `Generate post draft with LLM` to create a social post.
-6. The generated post is saved to Content Service as a normal draft, so Content Studio, approval, and Scheduler continue to work as before.
+1. User enters the data they want scraped, such as `latest stock market news for fintech founders`.
+2. User can optionally provide multiple Google source queries, one per line, to run several source searches in the same request.
+3. Scraper discovers source URLs from Google results through SerpAPI for each query.
+4. Scraper crawls each discovered source page while respecting `robots.txt` and keeps the results grouped by query.
+5. Scraped results are saved as a MongoDB research pack with separate source sections for each query.
+6. User can click `Generate post draft with LLM` to create a social post.
+7. The generated post is saved to Content Service as a normal draft, so Content Studio, approval, and Scheduler continue to work as before.
 
 ## RabbitMQ event contract
 

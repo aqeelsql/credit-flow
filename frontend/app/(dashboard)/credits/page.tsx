@@ -149,11 +149,13 @@ function CreditsPurchase() {
                 }
               />
             </div>
-            <strong className="metric-value">{money(estimatedPrice(item), item.currency)}</strong>
-            <div className="credit-package-actions with-top-gap"><button className="button primary compact" type="button" onClick={() => void buyPackage(item)} disabled={busyPackage !== null}>
-              {busyPackage === item.key ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <CreditCard size={16} aria-hidden="true" />}
-              {busyPackage === item.key ? "Opening checkout..." : `Buy ${selectedAmount(item).toLocaleString()} credits`}
-            </button></div>
+            <div className="credit-package-purchase-row with-top-gap">
+              <strong className="metric-value">{money(estimatedPrice(item), item.currency)}</strong>
+              <button className="button primary compact" type="button" onClick={() => void buyPackage(item)} disabled={busyPackage !== null}>
+                {busyPackage === item.key ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <CreditCard size={16} aria-hidden="true" />}
+                {busyPackage === item.key ? "Opening checkout..." : `Buy ${selectedAmount(item).toLocaleString()} credits`}
+              </button>
+            </div>
           </article>
         )) : <div className="empty-state">No credit packages are configured yet.</div>}
       </div>

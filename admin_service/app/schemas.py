@@ -76,6 +76,7 @@ class AccountOverviewResponse(BaseModel):
     credits: dict[str, Any] | None = None
     usage: dict[str, Any] | None = None
     members: list[dict[str, Any]] | None = None
+    invoices: list[dict[str, Any]] | None = None
     errors: dict[str, str] = {}
 
 
@@ -88,6 +89,11 @@ class AccountDirectoryItem(BaseModel):
     team_size: int
     owner_name: str | None = None
     owner_email: str | None = None
+    subscription_plan: str | None = None
+    subscription_status: str | None = None
+    stripe_subscription_id: str | None = None
+    invoice_count: int = 0
+    subscription_revenue_cents: int = 0
     created_at: str
     updated_at: str
 
@@ -97,8 +103,16 @@ class AccountDirectoryResponse(BaseModel):
     errors: dict[str, str] = {}
 
 class OpsSummaryResponse(BaseModel):
+    total_credits_generated: int = 0
     total_credits_sold: int = 0
+    credits_left: int = 0
+    active_package_credits: int = 0
+    package_count: int = 0
+    active_package_count: int = 0
     total_money_generated_cents: int = 0
+    subscription_revenue_cents: int = 0
+    credit_purchase_revenue_cents: int = 0
+    invoice_count: int = 0
     currency: str = "usd"
     purchase_count: int = 0
     account_count: int = 0

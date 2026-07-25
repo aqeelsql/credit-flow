@@ -139,13 +139,8 @@ export async function GET(request: NextRequest) {
   try {
     const gateway = await gatewayStream(request, prompt.slice(0, MAX_LLM_PROMPT_CHARS), accountId, requestId);
     if (gateway) return gateway;
-  } catch {
-    // Fall back to direct local-dev LLM streaming below.
-  }
-
-  try {
-    return await directOpenRouterStream(prompt.slice(0, MAX_LLM_PROMPT_CHARS));
+    return Response.json({ error: "AI Generation Service is unavailable. Generation requires credits and cannot use the direct provider fallback." }, { status: 502 });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Unable to reach the generation gateway or direct LLM provider." }, { status: 502 });
+    return Response.json({ error: error instanceof Error ? error.message : "Unable to reach the AI Generation Service." }, { status: 502 });
   }
 }

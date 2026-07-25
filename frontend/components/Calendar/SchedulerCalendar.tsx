@@ -14,6 +14,7 @@ type DraftContent = {
   id: string;
   title: string;
   body: string;
+  status?: string;
   image_url?: string | null;
   image_asset_ref?: string | null;
   metadata?: { has_image?: boolean } | null;
@@ -36,6 +37,7 @@ type DraftListResponse = { items: DraftContent[] };
 type ScheduledListResponse = { items: ScheduledPost[] };
 
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+const SCHEDULE_CONTENT_HANDOFF_KEY = "creditflow:schedule-content-handoff";
 
 function calendarRange() {
   const start = new Date();
@@ -107,11 +109,45 @@ export function SchedulerCalendar() {
 
   const loadDrafts = async () => {
     if (!activeAccount || !accessToken) return;
-    const response = await fetch("/api/content/drafts?limit=100", { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" });
-    if (!response.ok) throw new Error(await readError(response, `Drafts failed to load (${response.status}).`));
-    const data = (await response.json()) as DraftListResponse;
-    setDrafts(data.items ?? []);
-    setSelectedDraftId((current) => current || data.items?.[0]?.id || "");
+    const [draftResponse, approvedResponse] = await Promise.all([
+      fetch("/api/content/drafts?limit=100", { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" }),
+      fetch("/api/content/drafts?status=approved&limit=100", { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" })
+    ]);
+    if (!draftResponse.ok) throw new Error(await readError(draftResponse, `Drafts failed to load (${draftResponse.status}).`));
+    const draftsData = (await draftResponse.json()) as DraftListResponse;
+    const approvedData = approvedResponse.ok ? ((await approvedResponse.json()) as DraftListResponse) : { items: [] };
+    let merged = [...(draftsData.items ?? []), ...(approvedData.items ?? [])].filter((draft, index, items) => items.findIndex((item) => item.id === draft.id) === index);
+    let handoffContentId = "";
+    try {
+      const raw = window.sessionStorage.getItem(SCHEDULE_CONTENT_HANDOFF_KEY);
+      if (raw) {
+        const payload = JSON.parse(raw) as Partial<DraftContent> & { contentId?: string };
+        handoffContentId = payload.contentId ?? payload.id ?? "";
+        if (handoffContentId && !merged.some((draft) => draft.id === handoffContentId)) {
+          merged = [
+            {
+              id: handoffContentId,
+              title: payload.title || "Untitled post",
+              body: payload.body || "",
+              status: payload.status || "draft",
+              image_url: payload.image_url ?? null,
+              image_asset_ref: payload.image_asset_ref ?? null,
+              metadata: payload.metadata ?? null
+            },
+            ...merged
+          ];
+        }
+        window.sessionStorage.removeItem(SCHEDULE_CONTENT_HANDOFF_KEY);
+      }
+    } catch {
+      window.sessionStorage.removeItem(SCHEDULE_CONTENT_HANDOFF_KEY);
+    }
+    setDrafts(merged);
+    setSelectedDraftId((current) => {
+      if (handoffContentId && merged.some((draft) => draft.id === handoffContentId)) return handoffContentId;
+      if (current && merged.some((draft) => draft.id === current)) return current;
+      return merged[0]?.id || "";
+    });
   };
 
   const loadScheduled = async () => {
@@ -153,19 +189,25 @@ export function SchedulerCalendar() {
     [events]
   );
 
-  const selectedDraft = drafts.find((draft) => draft.id === selectedDraftId);
-  const selectedSchedule = selectedDraft ? events.find((event) => event.content_id === selectedDraft.id && event.status === "scheduled") : undefined;
+  const activeScheduledContentIds = useMemo(
+    () => new Set(events.filter((event) => event.status === "scheduled").map((event) => event.content_id)),
+    [events]
+  );
+  const availableDrafts = useMemo(
+    () => drafts.filter((draft) => !activeScheduledContentIds.has(draft.id)),
+    [drafts, activeScheduledContentIds]
+  );
+  const selectedDraft = availableDrafts.find((draft) => draft.id === selectedDraftId);
 
   useEffect(() => {
-    if (!selectedSchedule) {
-      setRecurring("none");
+    if (selectedDraftId && !availableDrafts.some((draft) => draft.id === selectedDraftId)) {
+      setSelectedDraftId(availableDrafts[0]?.id || "");
       return;
     }
-    const scheduledAt = new Date(selectedSchedule.publish_at_local ?? selectedSchedule.publish_at);
-    setScheduleDate(toDateInputValue(scheduledAt));
-    setScheduleTime(toTimeInputValue(scheduledAt));
-    setRecurring(selectedSchedule.recurrence);
-  }, [selectedSchedule?.id]);
+    if (!selectedDraftId && availableDrafts.length > 0) {
+      setSelectedDraftId(availableDrafts[0].id);
+    }
+  }, [availableDrafts, selectedDraftId]);
 
   const scheduleDraft = async (date: Date, allDay: boolean) => {
     if (!selectedDraft || !accessToken) return;
@@ -179,6 +221,8 @@ export function SchedulerCalendar() {
       if (!response.ok) throw new Error(await readError(response, `Schedule failed (${response.status}).`));
       const created = (await response.json()) as ScheduledPost;
       setEvents((current) => [...current.filter((event) => event.content_id !== created.content_id || event.status !== "scheduled"), created]);
+      setDrafts((current) => current.filter((draft) => draft.id !== created.content_id));
+      setSelectedDraftId("");
       setNotice("Post scheduled.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Schedule failed.");
@@ -196,16 +240,17 @@ export function SchedulerCalendar() {
     }
     setIsBusy(true);
     try {
-      const url = selectedSchedule ? `/api/calendar/scheduled/${selectedSchedule.id}` : "/api/calendar/scheduled";
-      const response = await fetch(url, {
-        method: selectedSchedule ? "PATCH" : "POST",
+      const response = await fetch("/api/calendar/scheduled", {
+        method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ content_id: selectedDraft.id, content_title: selectedDraft.title, publish_at: publishAt.toISOString(), timezone, recurrence: recurring })
       });
       if (!response.ok) throw new Error(await readError(response, `Schedule failed (${response.status}).`));
       const saved = (await response.json()) as ScheduledPost;
       setEvents((current) => [...current.filter((event) => event.id !== saved.id && (event.content_id !== saved.content_id || event.status !== "scheduled")), saved]);
-      setNotice(selectedSchedule ? "Schedule updated." : "Post scheduled.");
+      setDrafts((current) => current.filter((draft) => draft.id !== saved.content_id));
+      setSelectedDraftId("");
+      setNotice("Post scheduled.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Schedule failed.");
     } finally {
@@ -263,8 +308,8 @@ export function SchedulerCalendar() {
           <div className="field">
             <label htmlFor="draft-select">Draft</label>
             <select id="draft-select" value={selectedDraftId} onChange={(event) => setSelectedDraftId(event.target.value)}>
-              {drafts.length === 0 ? <option value="">No active drafts</option> : null}
-              {drafts.map((draft) => <option key={draft.id} value={draft.id}>{draft.title}</option>)}
+              {availableDrafts.length === 0 ? <option value="">No unscheduled drafts</option> : null}
+              {availableDrafts.map((draft) => <option key={draft.id} value={draft.id}>{draft.title}</option>)}
             </select>
           </div>
           <div className="field">
@@ -285,16 +330,16 @@ export function SchedulerCalendar() {
             <input id="schedule-time" type="time" value={scheduleTime} onChange={(event) => setScheduleTime(event.target.value)} />
           </div>
           <button className="button primary" type="button" onClick={() => void scheduleSelectedDraft()} disabled={!selectedDraft || isBusy}>
-            {selectedSchedule ? "Update schedule" : "Schedule selected post"}
+            Schedule selected post
           </button>
           <button className="button ghost" type="button" onClick={() => void reload()} disabled={isBusy}>Refresh</button>
           {selectedDraft ? (
             <div className="schedule-item">
               <strong>{selectedDraft.title}</strong>
-              <p>{draftHasImage(selectedDraft) ? "Text and image post" : "Text-only post"}</p>
-              <p>Status: {selectedSchedule ? "Scheduled" : "Not scheduled"}</p>
-              <p>Date/time: <span className="mono">{formatScheduleDate(selectedSchedule?.publish_at_local ?? selectedSchedule?.publish_at)}</span></p>
-              <p>Cadence: {cadenceLabel(selectedSchedule?.recurrence ?? recurring)}</p>
+              <p>{draftHasImage(selectedDraft) ? "Text and image post" : "Text-only post"}{selectedDraft.status === "approved" ? " / Approved" : ""}</p>
+              <p>Status: Not scheduled</p>
+              <p>Date/time: <span className="mono">{formatScheduleDate(`${scheduleDate}T${scheduleTime || "09:00"}:00`)}</span></p>
+              <p>Cadence: {cadenceLabel(recurring)}</p>
             </div>
           ) : null}
         </aside>

@@ -81,6 +81,20 @@ async def account_directory(q: str | None = Query(default=None), limit: int = Qu
         return AccountDirectoryResponse(items=[], errors=fallback_errors)
 
 
+@router.get("/invoices")
+async def admin_invoices(account_id: str | None = Query(default=None), limit: int = Query(default=100, ge=1, le=250), offset: int = Query(default=0, ge=0), principal: Principal = Depends(current_principal), db: Database = Depends(database_dep)):
+    if principal.role != "SuperAdmin":
+        account_id = scoped_account(principal, account_id)
+    settings = get_settings()
+    async with db.acquire() as conn:
+        rows = await PlatformReadRepository(
+            conn,
+            user_tenant_schema=settings.user_tenant_database_schema,
+            billing_schema=settings.billing_database_schema,
+        ).list_invoices(account_id=account_id, limit=limit, offset=offset)
+    return {"items": rows}
+
+
 @router.get("/ops-summary", response_model=OpsSummaryResponse)
 async def ops_summary(principal: Principal = Depends(current_principal), db: Database = Depends(database_dep)):
     if principal.role != "SuperAdmin":
@@ -124,9 +138,22 @@ async def ops_summary(principal: Principal = Depends(current_principal), db: Dat
 
 
 @router.get("/accounts/{account_id}/overview", response_model=AccountOverviewResponse)
-async def account_overview(account_id: str, principal: Principal = Depends(current_principal)):
+async def account_overview(account_id: str, principal: Principal = Depends(current_principal), db: Database = Depends(database_dep)):
     scoped_account(principal, account_id)
-    data = await AggregatorClient(get_settings()).account_overview(account_id, principal)
+    settings = get_settings()
+    data = await AggregatorClient(settings).account_overview(account_id, principal)
+    if data.get("errors", {}).get("invoices") or data.get("invoices") is None:
+        try:
+            async with db.acquire() as conn:
+                invoices = await PlatformReadRepository(
+                    conn,
+                    user_tenant_schema=settings.user_tenant_database_schema,
+                    billing_schema=settings.billing_database_schema,
+                ).list_invoices(account_id=account_id, limit=100, offset=0)
+            data["invoices"] = invoices
+            data.get("errors", {}).pop("invoices", None)
+        except Exception as exc:
+            data.setdefault("errors", {})["invoice_fallback"] = str(exc)
     return AccountOverviewResponse(**data)
 
 

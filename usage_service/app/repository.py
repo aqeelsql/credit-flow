@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 import json
 from typing import Any
@@ -10,6 +10,10 @@ import asyncpg
 
 def current_period() -> str:
     return datetime.now(UTC).strftime("%Y-%m")
+
+
+def period_start_date(period: str) -> date:
+    return datetime.strptime(f"{period}-01", "%Y-%m-%d").date()
 
 
 def event_id_from_generation(payload: dict[str, Any]) -> str:
@@ -64,9 +68,13 @@ class UsageRepository:
         return dict(row)
 
     async def append_usage_from_generation(self, event_id: str, payload: dict[str, Any], currency: str) -> dict[str, Any]:
-        prompt_tokens = int(payload.get("prompt_tokens") or 0)
-        completion_tokens = int(payload.get("completion_tokens") or 0)
-        total_tokens = int(payload.get("total_tokens") or (prompt_tokens + completion_tokens))
+        actual_prompt_tokens = int(payload.get("prompt_tokens") or 0)
+        actual_completion_tokens = int(payload.get("completion_tokens") or 0)
+        actual_total_tokens = int(payload.get("total_tokens") or (actual_prompt_tokens + actual_completion_tokens))
+        charged_tokens = int(payload.get("credits_used") or payload.get("usage_tokens") or actual_total_tokens)
+        prompt_tokens = actual_prompt_tokens
+        completion_tokens = actual_completion_tokens
+        total_tokens = max(0, charged_tokens)
         cost = Decimal(str(payload.get("cost") or "0"))
         row = await self.conn.fetchrow(
             """
@@ -83,7 +91,7 @@ class UsageRepository:
             str(payload.get("operation") or "text_generation"),
             str(payload.get("model") or "unknown"),
             prompt_tokens, completion_tokens, total_tokens, cost, currency,
-            _json({"source": "ai.generation_completed", "payload": payload}),
+            _json({"source": "ai.generation_completed", "payload": payload, "actual_tokens": {"prompt_tokens": actual_prompt_tokens, "completion_tokens": actual_completion_tokens, "total_tokens": actual_total_tokens}, "charged_tokens": total_tokens}),
         )
         return dict(row) if row is not None else {}
 
@@ -92,7 +100,7 @@ class UsageRepository:
         args: list[Any] = [account_id]
         if period:
             query += " AND created_at >= $2::date AND created_at < ($2::date + interval '1 month')"
-            args.append(f"{period}-01")
+            args.append(period_start_date(period))
         value = await self.conn.fetchval(query, *args)
         return int(value or 0)
 
@@ -101,7 +109,7 @@ class UsageRepository:
         if account_id:
             args.append(account_id); where.append(f"account_id = ${len(args)}")
         if period:
-            args.append(f"{period}-01"); where.append(f"created_at >= ${len(args)}::date AND created_at < (${len(args)}::date + interval '1 month')")
+            args.append(period_start_date(period)); where.append(f"created_at >= ${len(args)}::date AND created_at < (${len(args)}::date + interval '1 month')")
         where_sql = "WHERE " + " AND ".join(where) if where else ""
         rows = await self.conn.fetch(
             f"""

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle, Coins, Download, ImagePlus, RadioTower, Save, Sparkles, Square, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { CheckCircle, Download, ImagePlus, RadioTower, Save, Send, Sparkles, Square, Trash2, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useAuth } from "@/lib/auth-context";
@@ -15,7 +16,6 @@ type DraftItem = {
   status?: string;
   image_url?: string | null;
   image_asset_ref?: string | null;
-  source_generation_job_id?: string | null;
   metadata?: { has_image?: boolean } | null;
 };
 
@@ -23,30 +23,19 @@ type DraftListResponse = {
   items: DraftItem[];
 };
 
-type CreditBalance = {
-  account_id: string;
-  balance: number;
-  low_balance_threshold: number;
-  is_low_balance: boolean;
-};
+type CreditBalance = { balance: number };
+type UsageSummary = { quota_tokens?: number | null; used_tokens: number; remaining_tokens?: number | null };
+type CreditLedgerEntry = { amount: number; reason: string; source_event_id?: string | null; metadata?: Record<string, unknown> | null };
+type PublishNowResponse = { status: string; linkedin_post_url?: string | null; job?: { linkedin_post_url?: string | null } };
 
-type CreditLedgerEntry = {
-  id: string;
-  account_id: string;
-  amount: number;
-  reason: string;
-  source_event_id?: string | null;
-  metadata?: Record<string, unknown> | null;
-  created_at: string;
-};
-
-const DEFAULT_PROMPT = "Write a LinkedIn post about account-scoped AI credit governance.";
+const DEFAULT_PROMPT = "";
 const SCRAPER_PROMPT_HANDOFF_KEY = "creditflow:scraper-prompt-handoff";
-const AI_CREDIT_EVENT_PREFIX = "content-studio-ai";
-const MIN_TEXT_GENERATION_CREDITS = 10;
+const SCHEDULE_CONTENT_HANDOFF_KEY = "creditflow:schedule-content-handoff";
+const TEXT_GENERATION_CREDIT_COST = 100;
 
 export function ContentStudio() {
-  const { activeAccount, accessToken, session } = useAuth();
+  const router = useRouter();
+  const { activeAccount, accessToken } = useAuth();
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [output, setOutput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -62,127 +51,65 @@ export function ContentStudio() {
   const [isDraftBusy, setIsDraftBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [showSavedDrafts, setShowSavedDrafts] = useState(false);
-  const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
-  const [generationUsage, setGenerationUsage] = useState<CreditLedgerEntry[]>([]);
-  const [isLoadingCredits, setIsLoadingCredits] = useState(false);
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
+  const [usedTokens, setUsedTokens] = useState(0);
+  const [remainingTokens, setRemainingTokens] = useState<number | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishChoiceDraft, setPublishChoiceDraft] = useState<DraftItem | null | undefined>(undefined);
   const stopStreamRef = useRef<(() => void) | null>(null);
   const outputRef = useRef("");
   const generateImageAlsoRef = useRef(false);
-  const activeGenerationEventIdRef = useRef<string | null>(null);
-  const prepaidGenerationCreditsRef = useRef(0);
-  const activeGenerationJobIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => stopStreamRef.current?.();
   }, []);
 
+  const readApiError = async (response: Response, fallback: string) => {
+    const body = (await response.json().catch(() => null)) as { error?: string | { message?: string } } | null;
+    const error = typeof body?.error === "string" ? body.error : body?.error?.message;
+    return error || fallback;
+  };
+
+  const loadCreditUsage = async () => {
+    if (!activeAccount || !accessToken) {
+      setCreditBalance(null);
+      setUsedTokens(0);
+      setRemainingTokens(null);
+      return;
+    }
+    try {
+      const [balanceResponse, usageResponse, transactionsResponse] = await Promise.all([
+        fetch("/api/credits/balance", { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" }),
+        fetch(`/api/usage/usage/accounts/${encodeURIComponent(activeAccount.id)}/summary`, { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" }),
+        fetch("/api/credits/transactions?limit=200", { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" })
+      ]);
+      if (balanceResponse.ok) {
+        const balance = (await balanceResponse.json()) as CreditBalance;
+        setCreditBalance(Number(balance.balance ?? 0));
+      }
+      let usageUsedTokens = 0;
+      if (usageResponse.ok) {
+        const usage = (await usageResponse.json()) as UsageSummary;
+        usageUsedTokens = Number(usage.used_tokens ?? 0);
+        setRemainingTokens(typeof usage.remaining_tokens === "number" ? usage.remaining_tokens : null);
+      }
+      if (transactionsResponse.ok) {
+        const transactions = (await transactionsResponse.json()) as CreditLedgerEntry[];
+        const aiCreditDelta = transactions
+          .filter((entry) => entry.metadata?.kind === "ai_generation" || entry.source_event_id?.startsWith("ai.generation.reserve:"))
+          .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+        setUsedTokens(Math.max(usageUsedTokens, Math.max(0, -aiCreditDelta)));
+      } else {
+        setUsedTokens(usageUsedTokens);
+      }
+    } catch {
+      // Keep generation usable even if one dashboard metric is temporarily unavailable.
+    }
+  };
+
   useEffect(() => {
     generateImageAlsoRef.current = generateImageAlso;
   }, [generateImageAlso]);
-
-  const canViewAccountUsage = useMemo(() => session?.role === "Owner" || session?.role === "TenantAdmin", [session?.role]);
-
-  const aiCreditsUsed = useMemo(() => generationUsage.reduce((total, entry) => total + Math.abs(entry.amount), 0), [generationUsage]);
-
-  const estimateTokenCredits = (sourcePrompt: string, generatedText: string) => {
-    const estimatedTokens = Math.ceil(`${sourcePrompt}\n${generatedText}`.trim().length / 4);
-    return Math.max(1, estimatedTokens);
-  };
-
-  const metadataString = (metadata: Record<string, unknown> | null | undefined, keys: string[], fallback = "Unknown") => {
-    for (const key of keys) {
-      const value = metadata?.[key];
-      if (typeof value === "string" && value.trim()) return value;
-      if (typeof value === "number") return String(value);
-    }
-    return fallback;
-  };
-
-  const isUuid = (value: string | null) => Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value));
-
-  const loadCreditData = async () => {
-    if (!activeAccount || !accessToken) {
-      setCreditBalance(null);
-      setGenerationUsage([]);
-      return;
-    }
-    setIsLoadingCredits(true);
-    try {
-      const [balanceResponse, transactionsResponse] = await Promise.all([
-        fetch("/api/credits/balance", {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          cache: "no-store"
-        }),
-        fetch("/api/credits/transactions?limit=100", {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          cache: "no-store"
-        })
-      ]);
-
-      if (!balanceResponse.ok) {
-        const body = (await balanceResponse.json().catch(() => null)) as { error?: string | { message?: string } } | null;
-        const error = typeof body?.error === "string" ? body.error : body?.error?.message;
-        throw new Error(error || `Credits failed to load (${balanceResponse.status}).`);
-      }
-      setCreditBalance((await balanceResponse.json()) as CreditBalance);
-
-      if (!transactionsResponse.ok) {
-        const body = (await transactionsResponse.json().catch(() => null)) as { error?: string | { message?: string } } | null;
-        const error = typeof body?.error === "string" ? body.error : body?.error?.message;
-        throw new Error(error || `Generation usage failed to load (${transactionsResponse.status}).`);
-      }
-      const rows = (await transactionsResponse.json()) as CreditLedgerEntry[];
-      setGenerationUsage(rows.filter((row) => row.amount < 0 && row.metadata?.kind === "ai_generation"));
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Credits failed to load.");
-    } finally {
-      setIsLoadingCredits(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadCreditData();
-  }, [activeAccount?.id, accessToken, canViewAccountUsage]);
-
-  const prepayGenerationCredits = async (sourcePrompt: string, eventId: string) => {
-    if (!activeAccount || !accessToken) {
-      return 0;
-    }
-
-    const creditsUsed = Math.max(MIN_TEXT_GENERATION_CREDITS, estimateTokenCredits(sourcePrompt, ""));
-
-    const response = await fetch("/api/credits/consume", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`
-      },
-      body: JSON.stringify({
-        amount: creditsUsed,
-        event_id: eventId,
-        reason: "ai_generation",
-        metadata: {
-          kind: "ai_generation",
-          service: "content_studio",
-          charge_timing: "before_generation",
-          user_id: session?.user_id,
-          user_email: session?.email,
-          role: session?.role,
-          prompt_preview: sourcePrompt.slice(0, 240),
-          token_estimate: creditsUsed,
-          credits_used: creditsUsed
-        }
-      })
-    });
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as { error?: string | { message?: string } } | null;
-      const error = typeof body?.error === "string" ? body.error : body?.error?.message;
-      throw new Error(error || `Credit deduction failed (${response.status}).`);
-    }
-    setCreditBalance((await response.json()) as CreditBalance);
-    await loadCreditData();
-    return creditsUsed;
-  };
 
   const loadDrafts = async () => {
     if (!activeAccount || !accessToken) {
@@ -191,18 +118,20 @@ export function ContentStudio() {
     }
     setIsLoadingDrafts(true);
     try {
-      const response = await fetch("/api/content/drafts?limit=20", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        cache: "no-store"
-      });
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: string | { message?: string } } | null;
+      const [draftResponse, approvedResponse] = await Promise.all([
+        fetch("/api/content/drafts?limit=50", { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" }),
+        fetch("/api/content/drafts?status=approved&limit=50", { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" })
+      ]);
+      if (!draftResponse.ok) {
+        const body = (await draftResponse.json().catch(() => null)) as { error?: string | { message?: string } } | null;
         const error = typeof body?.error === "string" ? body.error : body?.error?.message;
-        throw new Error(error || `Drafts failed to load (${response.status}).`);
+        throw new Error(error || `Drafts failed to load (${draftResponse.status}).`);
       }
-      const data = (await response.json()) as DraftListResponse;
-      setSavedDrafts(data.items ?? []);
-      if (selectedDraftId && !data.items?.some((draft) => draft.id === selectedDraftId)) {
+      const drafts = (await draftResponse.json()) as DraftListResponse;
+      const approved = approvedResponse.ok ? ((await approvedResponse.json()) as DraftListResponse) : { items: [] };
+      const merged = [...(drafts.items ?? []), ...(approved.items ?? [])].filter((draft, index, items) => items.findIndex((item) => item.id === draft.id) === index);
+      setSavedDrafts(merged);
+      if (selectedDraftId && !merged.some((draft) => draft.id === selectedDraftId)) {
         clearSelectedDraft();
       }
     } catch (error) {
@@ -214,6 +143,7 @@ export function ContentStudio() {
 
   useEffect(() => {
     void loadDrafts();
+    void loadCreditUsage();
   }, [activeAccount?.id, accessToken]);
 
   const generateImageFromText = async (text: string) => {
@@ -276,8 +206,8 @@ export function ContentStudio() {
       return;
     }
 
-    if (creditBalance && creditBalance.balance <= 0) {
-      setNotice("This account has no credits available. Please buy credits before generating AI content.");
+    if ((creditBalance ?? 0) < TEXT_GENERATION_CREDIT_COST || remainingTokens === 0) {
+      setNotice(`Not enough credits to generate this post. At least ${TEXT_GENERATION_CREDIT_COST} credits are required.`);
       return;
     }
 
@@ -286,38 +216,22 @@ export function ContentStudio() {
       setPrompt(promptOverride);
     }
 
-    const eventId = `${AI_CREDIT_EVENT_PREFIX}:${crypto.randomUUID()}`;
-    activeGenerationEventIdRef.current = eventId;
-    activeGenerationJobIdRef.current = null;
-    let prepaidCredits = 0;
-    try {
-      prepaidCredits = await prepayGenerationCredits(promptToUse, eventId);
-      prepaidGenerationCreditsRef.current = prepaidCredits;
-    } catch (error) {
-      activeGenerationEventIdRef.current = null;
-      prepaidGenerationCreditsRef.current = 0;
-      setNotice(error instanceof Error ? error.message : "Credit deduction failed. Generation was not started.");
-      return;
-    }
-
     stopStreamRef.current?.();
     setOutput("");
     outputRef.current = "";
     setImageUrl("");
     setImageDownloadUrl("");
     setHasImage(false);
-    setNotice(`${prepaidCredits.toLocaleString()} credits deducted. Starting generation...`);
+    setNotice("");
+    setCreditBalance((current) => (typeof current === "number" ? Math.max(0, current - TEXT_GENERATION_CREDIT_COST) : current));
+    setUsedTokens((current) => current + TEXT_GENERATION_CREDIT_COST);
     setIsStreaming(true);
+    window.setTimeout(() => void loadCreditUsage(), 500);
 
     stopStreamRef.current = streamAiGeneration({
       prompt: promptToUse,
       accountId: activeAccount.id,
-      requestId: eventId,
       accessToken,
-      onJobId: (jobId) => {
-        activeGenerationJobIdRef.current = jobId;
-        if (!activeGenerationEventIdRef.current) activeGenerationEventIdRef.current = `ai.generation_completed:${jobId}`;
-      },
       onToken: (token) => {
         outputRef.current += token;
         setOutput(outputRef.current);
@@ -325,22 +239,17 @@ export function ContentStudio() {
       onDone: () => {
         setIsStreaming(false);
         stopStreamRef.current = null;
-        void (async () => {
-          await loadCreditData();
-          setNotice(`Generation complete. ${prepaidGenerationCreditsRef.current.toLocaleString()} credits consumed.`);
-          activeGenerationEventIdRef.current = null;
-          prepaidGenerationCreditsRef.current = 0;
-          if (generateImageAlsoRef.current) {
-            void generateImageFromText(outputRef.current);
-          }
-        })();
+        window.setTimeout(() => void loadCreditUsage(), 800);
+        window.setTimeout(() => void loadCreditUsage(), 2500);
+        if (generateImageAlsoRef.current) {
+          void generateImageFromText(outputRef.current);
+        }
       },
       onError: (message) => {
         setIsStreaming(false);
-        setNotice(message);
-        activeGenerationEventIdRef.current = null;
-        activeGenerationJobIdRef.current = null;
-        prepaidGenerationCreditsRef.current = 0;
+        window.setTimeout(() => void loadCreditUsage(), 500);
+        window.setTimeout(() => void loadCreditUsage(), 1800);
+        setNotice(message.includes("quota") || message.includes("credit") ? "Not enough tokens to generate this post. Please buy more credits." : message);
       }
     });
   };
@@ -353,14 +262,14 @@ export function ContentStudio() {
     if (!raw) {
       return;
     }
-    window.sessionStorage.removeItem(SCRAPER_PROMPT_HANDOFF_KEY);
     try {
       const payload = JSON.parse(raw) as { prompt?: string; autoGenerate?: boolean };
       if (payload.prompt) {
+        window.sessionStorage.removeItem(SCRAPER_PROMPT_HANDOFF_KEY);
         setPrompt(payload.prompt);
         setNotice("Scraped research loaded from the scraper. Generating post now.");
         if (payload.autoGenerate) {
-          void startGeneration(payload.prompt);
+          window.setTimeout(() => void startGeneration(payload.prompt), 0);
         }
       }
     } catch {
@@ -383,7 +292,7 @@ export function ContentStudio() {
     setImageUrl("");
     setImageDownloadUrl("");
     setHasImage(false);
-    activeGenerationJobIdRef.current = null;
+    setPublishChoiceDraft(undefined);
     setNotice("Draft closed. You can generate new content now.");
   };
 
@@ -404,7 +313,6 @@ export function ContentStudio() {
     setImageUrl(draft.image_url ?? "");
     setImageDownloadUrl("");
     setHasImage(draftHasImage(draft));
-    activeGenerationJobIdRef.current = draft.source_generation_job_id ?? null;
     setShowSavedDrafts(false);
     setNotice("Draft loaded for editing.");
   };
@@ -414,20 +322,16 @@ export function ContentStudio() {
     void loadDrafts();
   };
 
-  const readDraftError = async (response: Response, fallback: string) => {
-    const body = (await response.json().catch(() => null)) as { error?: string | { message?: string } } | null;
-    const error = typeof body?.error === "string" ? body.error : body?.error?.message;
-    return error || fallback;
-  };
+  const readDraftError = readApiError;
 
-  const saveDraft = async () => {
+  const saveDraft = async (): Promise<DraftItem | null> => {
     if (!activeAccount) {
-      return;
+      return null;
     }
 
     if (!accessToken) {
       setNotice("You must be signed in to save a draft.");
-      return;
+      return null;
     }
 
     setIsDraftBusy(true);
@@ -444,17 +348,8 @@ export function ContentStudio() {
           title: draftTitle || undefined,
           prompt,
           body: output,
-          source_generation_job_id: !isUpdating && isUuid(activeGenerationJobIdRef.current) ? activeGenerationJobIdRef.current : undefined,
           image_url: imageUrl || undefined,
-          has_image: hasImage,
-          metadata: {
-            has_image: hasImage,
-            source: selectedDraftId ? "content_studio_update" : "content_studio_save",
-            ai_generation_event_id: activeGenerationEventIdRef.current,
-            source_generation_job_id: activeGenerationJobIdRef.current,
-            generated_by_user_id: session?.user_id,
-            generated_by_email: session?.email
-          }
+          has_image: hasImage
         })
       });
       if (!response.ok) {
@@ -467,8 +362,10 @@ export function ContentStudio() {
       }
       setSavedDrafts((current) => [saved, ...current.filter((draft) => draft.id !== saved.id)]);
       setNotice(isUpdating ? "Draft updated." : "Draft saved to the active account.");
+      return saved;
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Draft save failed.");
+      return null;
     } finally {
       setIsDraftBusy(false);
     }
@@ -503,6 +400,117 @@ export function ContentStudio() {
     }
   };
 
+
+  const approveContentForPublish = async (contentId: string) => {
+    const response = await fetch(`/api/content/items/${contentId}/approve`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!response.ok && response.status !== 409) {
+      throw new Error(await readApiError(response, `Content approval failed (${response.status}).`));
+    }
+  };
+
+  const markContentPublished = async (contentId: string) => {
+    const response = await fetch(`/api/content/items/${contentId}/publish`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!response.ok && response.status !== 409) {
+      throw new Error(await readApiError(response, `Content publish status update failed (${response.status}).`));
+    }
+  };
+
+  const publishNow = async (draft?: DraftItem) => {
+    if (!accessToken) {
+      setNotice("You must be signed in to publish.");
+      return;
+    }
+    setIsPublishing(true);
+    setPublishChoiceDraft(undefined);
+    setNotice("");
+    try {
+      let contentId: string | null | undefined = draft?.id ?? selectedDraftId;
+      if (!contentId) {
+        const saved = await saveDraft();
+        contentId = saved?.id;
+      }
+      if (!contentId) {
+        throw new Error("Save the post before publishing.");
+      }
+      await approveContentForPublish(contentId);
+      const response = await fetch("/api/linkedin/publish-now", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ content_id: contentId })
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response, `LinkedIn publish failed (${response.status}).`));
+      }
+      const result = (await response.json()) as PublishNowResponse;
+      await markContentPublished(contentId);
+      setSavedDrafts((current) => current.filter((item) => item.id !== contentId));
+      if (selectedDraftId === contentId) {
+        clearSelectedDraft();
+      }
+      const postUrl = result.linkedin_post_url || result.job?.linkedin_post_url;
+      setNotice(postUrl ? `Published to LinkedIn: ${postUrl}` : "Published to LinkedIn.");
+      void loadDrafts();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "LinkedIn publish failed.");
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+
+  const openPublishChoices = (draft?: DraftItem | null) => {
+    setPublishChoiceDraft(draft ?? null);
+    setNotice("");
+  };
+
+  const schedulePublish = async (draft?: DraftItem | null) => {
+    if (!accessToken) {
+      setNotice("You must be signed in to schedule publishing.");
+      return;
+    }
+    setIsDraftBusy(true);
+    setPublishChoiceDraft(undefined);
+    try {
+      let contentId = draft?.id ?? selectedDraftId;
+      let title = draft?.title ?? draftTitle;
+      if (!contentId) {
+        const saved = await saveDraft();
+        contentId = saved?.id ?? null;
+        title = saved?.title ?? title;
+      } else if (!draft) {
+        const saved = await saveDraft();
+        contentId = saved?.id ?? contentId;
+        title = saved?.title ?? title;
+      }
+      if (!contentId) {
+        throw new Error("Save the post before scheduling.");
+      }
+      window.sessionStorage.setItem(
+        SCHEDULE_CONTENT_HANDOFF_KEY,
+        JSON.stringify({
+          contentId,
+          title: title || "Untitled post",
+          body: draft?.body ?? outputRef.current,
+          status: draft?.status ?? savedDrafts.find((item) => item.id === contentId)?.status ?? "draft",
+          image_url: draft?.image_url ?? (imageUrl || null),
+          image_asset_ref: draft?.image_asset_ref ?? null,
+          metadata: draft?.metadata ?? { has_image: hasImage }
+        })
+      );
+      router.push("/calendar");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Schedule handoff failed.");
+    } finally {
+      setIsDraftBusy(false);
+    }
+  };
+
   const approveDraft = async (draftId = selectedDraftId) => {
     if (!draftId || !accessToken) {
       return;
@@ -517,11 +525,12 @@ export function ContentStudio() {
         throw new Error(await readDraftError(response, `Draft approval failed (${response.status}).`));
       }
       const approved = (await response.json()) as DraftItem;
-      setSavedDrafts((current) => current.filter((draft) => draft.id !== approved.id));
+      setSavedDrafts((current) => [approved, ...current.filter((draft) => draft.id !== approved.id)]);
       if (selectedDraftId === approved.id) {
-        clearSelectedDraft();
+        setSelectedDraftId(approved.id);
+        setDraftTitle(approved.title);
       }
-      setNotice("Draft approved and removed from active drafts.");
+      setNotice("Draft approved.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Draft approval failed.");
     } finally {
@@ -538,21 +547,12 @@ export function ContentStudio() {
           <h1 className="page-title">Content studio</h1>
           <p className="page-subtitle">Generate text into the current account scope and save approved output as drafts.</p>
         </div>
-        <span className={isStreaming ? "status-badge live" : "status-badge neutral"}>
-          {isStreaming ? "Streaming" : "Idle"}
-        </span>
-      </div>
-
-      <div className="credit-summary-row" aria-label="Credit summary">
-        <div className="credit-chip">
-          <Coins size={15} aria-hidden="true" />
-          <span>Total credits</span>
-          <strong>{isLoadingCredits && !creditBalance ? "..." : (creditBalance?.balance ?? activeAccount?.credits ?? 0).toLocaleString()}</strong>
-        </div>
-        <div className="credit-chip">
-          <Sparkles size={15} aria-hidden="true" />
-          <span>AI credits used</span>
-          <strong>{aiCreditsUsed.toLocaleString()}</strong>
+        <div className="button-row compact">
+          <span className="status-badge neutral">Credits {(creditBalance ?? 0).toLocaleString()}</span>
+          <span className="status-badge neutral">Used credits {usedTokens.toLocaleString()}</span>
+          <span className={isStreaming ? "status-badge live" : "status-badge neutral"}>
+            {isStreaming ? "Streaming" : "Idle"}
+          </span>
         </div>
       </div>
 
@@ -572,7 +572,7 @@ export function ContentStudio() {
               <textarea id="prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
             </div>
             <div className="button-row">
-              <button className="button primary" type="submit" disabled={isStreaming}>
+              <button className="button primary" type="submit" disabled={isStreaming || (creditBalance ?? 0) <= 0 || remainingTokens === 0}>
                 <Sparkles size={16} aria-hidden="true" />
                 Generate
               </button>
@@ -607,12 +607,15 @@ export function ContentStudio() {
                   <div className={selectedDraftId === draft.id ? "draft-item selected" : "draft-item"} key={draft.id}>
                     <button className="draft-select" type="button" onClick={() => selectDraft(draft)}>
                       <strong>{draft.title}</strong>
-                      <p>{draftHasImage(draft) ? "Text and image post" : "Text-only post"}</p>
+                      <p>{draftHasImage(draft) ? "Text and image post" : "Text-only post"}{draft.status === "approved" ? " / Approved" : ""}</p>
                     </button>
                     <div className="button-row compact">
                       <button className="button ghost" type="button" onClick={() => selectDraft(draft)}>Edit</button>
-                      <button className="button secondary" type="button" onClick={() => void approveDraft(draft.id)} disabled={isDraftBusy}>
-                        Approve
+                      <button className="button secondary" type="button" onClick={() => openPublishChoices(draft)} disabled={isDraftBusy || isPublishing}>
+                        Publish
+                      </button>
+                      <button className="button secondary" type="button" onClick={() => void approveDraft(draft.id)} disabled={isDraftBusy || draft.status === "approved"}>
+                        {draft.status === "approved" ? "Approved" : "Approve"}
                       </button>
                       <button className="icon-button danger" type="button" onClick={() => void deleteDraft(draft.id)} disabled={isDraftBusy} aria-label="Delete draft">
                         <Trash2 size={14} aria-hidden="true" />
@@ -656,11 +659,21 @@ export function ContentStudio() {
                   <Save size={16} aria-hidden="true" />
                   {selectedDraftId ? "Update draft" : "Save draft"}
                 </button>
+                {!selectedDraftId ? (
+                  <button className="button secondary" type="button" onClick={() => openPublishChoices(null)} disabled={!output || isDraftBusy || isPublishing}>
+                    <Send size={16} aria-hidden="true" />
+                    Publish
+                  </button>
+                ) : null}
                 {selectedDraftId ? (
                   <>
-                    <button className="button secondary" type="button" onClick={() => void approveDraft()} disabled={isDraftBusy}>
+                    <button className="button secondary" type="button" onClick={() => openPublishChoices(null)} disabled={isDraftBusy || isPublishing}>
+                      <Send size={16} aria-hidden="true" />
+                      Publish
+                    </button>
+                    <button className="button secondary" type="button" onClick={() => void approveDraft()} disabled={isDraftBusy || savedDrafts.find((draft) => draft.id === selectedDraftId)?.status === "approved"}>
                       <CheckCircle size={16} aria-hidden="true" />
-                      Approve
+                      {savedDrafts.find((draft) => draft.id === selectedDraftId)?.status === "approved" ? "Approved" : "Approve"}
                     </button>
                     <button className="button danger" type="button" onClick={() => void deleteDraft()} disabled={isDraftBusy}>
                       <Trash2 size={16} aria-hidden="true" />
@@ -702,48 +715,44 @@ export function ContentStudio() {
             {isGeneratingImage ? <div className="generated-image-preview">Generating image from the final response...</div> : null}
             {imageUrl ? <img className="generated-image" src={imageUrl} alt="Generated post visual" /> : null}
             {hasImage && !imageUrl && !isGeneratingImage ? <div className="generated-image-preview">Image attached: this will publish as text and image.</div> : null}
+
+            {publishChoiceDraft !== undefined ? (
+              <div className="notice with-top-gap">
+                <strong>Choose publishing option</strong>
+                <p>{publishChoiceDraft?.title ?? (draftTitle || "Current post")}</p>
+                <div className="button-row compact">
+                  <button className="button primary compact" type="button" onClick={() => void publishNow(publishChoiceDraft ?? undefined)} disabled={isPublishing}>Publish now</button>
+                  <button className="button secondary compact" type="button" onClick={() => void schedulePublish(publishChoiceDraft ?? null)} disabled={isDraftBusy}>Schedule publish</button>
+                  <button className="button ghost compact" type="button" onClick={() => setPublishChoiceDraft(undefined)}>Cancel</button>
+                </div>
+              </div>
+            ) : null}
             {notice ? <div className="notice">{notice}</div> : null}
           </article>
           )}
         </div>
       </div>
 
-      {canViewAccountUsage ? (
-        <article className="panel with-top-gap">
-          <div className="panel-header">
-            <h2>Generation usage by user</h2>
-            <button className="button ghost" type="button" onClick={() => void loadCreditData()} disabled={isLoadingCredits}>
-              Refresh
-            </button>
+      {publishChoiceDraft !== undefined ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setPublishChoiceDraft(undefined)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="publish-choice-title" onClick={(event) => event.stopPropagation()}>
+            <h2 id="publish-choice-title">Publish this post</h2>
+            <p>{publishChoiceDraft?.title ?? (draftTitle || "Current generated post")}</p>
+            <div className="button-row">
+              <button className="button primary" type="button" onClick={() => void publishNow(publishChoiceDraft ?? undefined)} disabled={isPublishing}>
+                Publish now
+              </button>
+              <button className="button secondary" type="button" onClick={() => void schedulePublish(publishChoiceDraft ?? null)} disabled={isDraftBusy}>
+                Schedule publish
+              </button>
+              <button className="button ghost" type="button" onClick={() => setPublishChoiceDraft(undefined)}>
+                Cancel
+              </button>
+            </div>
           </div>
-          {generationUsage.length ? (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>User</th>
-                  <th>Prompt</th>
-                  <th>Post preview</th>
-                  <th>Credits used</th>
-                  <th>Generated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {generationUsage.map((entry) => (
-                  <tr key={entry.id}>
-                    <td>{metadataString(entry.metadata, ["user_email", "user_id"])}</td>
-                    <td>{metadataString(entry.metadata, ["prompt_preview"], "No prompt recorded")}</td>
-                    <td>{metadataString(entry.metadata, ["post_preview"], "No post preview recorded")}</td>
-                    <td>{Math.abs(entry.amount).toLocaleString()}</td>
-                    <td>{new Date(entry.created_at).toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="empty-state">{isLoadingCredits ? "Loading usage..." : "No AI generation credit usage recorded yet."}</div>
-          )}
-        </article>
+        </div>
       ) : null}
     </section>
   );
 }
+

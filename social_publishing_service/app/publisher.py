@@ -2,6 +2,7 @@ from app.config import Settings
 from app.content_client import ContentClient
 from app.crypto import TokenCipher
 from app.events import SocialEventBus
+from app.formatting import markdown_to_linkedin_text
 from app.linkedin import LinkedInClient
 from app.repository import SocialRepository
 
@@ -35,7 +36,8 @@ class PublishPipeline:
         await repo.mark_job_publishing(job["id"], connection["id"])
 
         content = await self.content.get_content(account_id, content_id)
-        text = str(content.get("body") or "").strip()
+        raw_text = str(content.get("body") or "").strip()
+        text = markdown_to_linkedin_text(raw_text)
         if not text:
             raise ValueError("Scheduled content body is empty")
 

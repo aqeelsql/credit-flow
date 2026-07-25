@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     internal_service_token: str = Field(default="", repr=False)
 
     usage_service_url: str = "http://localhost:8009"
+    credits_service_url: str = "http://localhost:8007"
+    credit_reservation_enabled: bool = Field(default=True, validation_alias="AI_GENERATION_CREDIT_RESERVATION_ENABLED")
+    credit_reservation_timeout_seconds: float = Field(default=5.0, validation_alias="AI_GENERATION_CREDIT_RESERVATION_TIMEOUT_SECONDS")
+    text_generation_credit_cost: int = Field(default=100, ge=1, validation_alias="AI_GENERATION_TEXT_CREDIT_COST")
     usage_service_timeout_seconds: float = Field(default=5.0, validation_alias="AI_GENERATION_USAGE_TIMEOUT_SECONDS")
     quota_backend: str = Field(default="redis", validation_alias="AI_GENERATION_QUOTA_BACKEND")
     daily_request_limit: int = Field(default=100, ge=1, validation_alias="AI_GENERATION_DAILY_REQUEST_LIMIT")

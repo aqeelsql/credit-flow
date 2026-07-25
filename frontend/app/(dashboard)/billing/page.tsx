@@ -34,12 +34,28 @@ type SavedPaymentMethod = {
   exp_year?: number | null;
 };
 
+type SubscriptionProfile = {
+  account_id: string;
+  plan: PlanKey | string;
+  status: string;
+  current_period_end?: string | null;
+};
+
 const plans: Array<{ key: PlanKey; name: string; price: string; credits: string; detail: string; cta: string }> = [
   { key: "free", name: "Free", price: "$0", credits: "Limited credits", detail: "Use the product without a paid subscription or stored payment method.", cta: "Use Free" },
   { key: "starter", name: "Starter", price: "$29", credits: "4,000 credits", detail: "For solo operators testing an AI-assisted publishing workflow.", cta: "Pay Starter" },
   { key: "pro", name: "Pro", price: "$149", credits: "25,000 credits", detail: "For owners managing regular content generation and scheduling.", cta: "Pay Pro" },
   { key: "team", name: "Team", price: "$399", credits: "90,000 credits", detail: "For teams with approvals, publishing, and admin oversight.", cta: "Pay Team" }
 ];
+
+const planRank: Record<PlanKey, number> = { free: 0, starter: 1, pro: 2, team: 3 };
+
+function planActionLabel(plan: PlanKey, currentPlan: PlanKey) {
+  if (plan === currentPlan) return "Current plan";
+  if (plan === "free") return "Downgrade to Free";
+  if (planRank[plan] > planRank[currentPlan]) return `Upgrade to ${plans.find((item) => item.key === plan)?.name ?? plan}`;
+  return `Downgrade to ${plans.find((item) => item.key === plan)?.name ?? plan}`;
+}
 
 function money(cents: number, currency: string) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: currency || "USD" }).format((cents || 0) / 100);
@@ -60,9 +76,11 @@ export default function BillingPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<SavedPaymentMethod | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionProfile | null>(null);
   const [loadingPaymentMethod, setLoadingPaymentMethod] = useState(false);
   const [busyPlan, setBusyPlan] = useState<PlanKey | null>(null);
   const [savingCard, setSavingCard] = useState(false);
+  const [syncingCheckout, setSyncingCheckout] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,13 +89,14 @@ export default function BillingPage() {
     const searchParams = new URLSearchParams(window.location.search);
     const checkout = searchParams.get("checkout");
     const paymentMethodStatus = searchParams.get("payment_method");
-    if (checkout === "success") return "Payment completed. Your invoice will appear shortly.";
+    if (checkout === "success") return "Payment completed. Syncing your plan and invoice.";
     if (checkout === "cancelled") return "Checkout was cancelled. No payment was made.";
     if (paymentMethodStatus === "success") return "Payment method saved. Refreshing card details.";
     if (paymentMethodStatus === "cancelled") return "Payment method setup was cancelled. No card was saved.";
     return null;
   }, []);
 
+  const currentPlan = (plans.some((plan) => plan.key === subscription?.plan) ? subscription?.plan : "free") as PlanKey;
   const authHeaders = () => ({ Authorization: `Bearer ${accessToken}` });
 
   async function loadInvoices() {
@@ -93,6 +112,17 @@ export default function BillingPage() {
       setError(err instanceof Error ? err.message : "Invoice history failed to load.");
     } finally {
       setLoadingInvoices(false);
+    }
+  }
+
+  async function loadSubscription() {
+    if (!accessToken) return;
+    try {
+      const response = await fetch("/api/billing/billing/subscription", { headers: authHeaders(), cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (response.ok) setSubscription(body as SubscriptionProfile);
+    } catch {
+      // Non-blocking; invoices and payment methods still load independently.
     }
   }
 
@@ -133,6 +163,30 @@ export default function BillingPage() {
     }
   }
 
+  async function syncPlanCheckout(sessionId: string) {
+    if (!accessToken) return;
+    setSyncingCheckout(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/billing/checkout/sessions/${encodeURIComponent(sessionId)}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() }
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(readError(body, `Plan checkout sync failed (${response.status}).`));
+      setMessage(body.invoice_id ? "Plan updated and invoice added." : "Plan updated. Invoice will appear after Stripe finalizes it.");
+      window.history.replaceState(null, "", "/billing?checkout=success");
+      await loadInvoices();
+      await loadPaymentMethod();
+      await loadSubscription();
+      window.dispatchEvent(new CustomEvent("creditflow:credits-updated"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Plan checkout sync failed.");
+    } finally {
+      setSyncingCheckout(false);
+    }
+  }
+
   async function startCheckout(plan: PlanKey) {
     if (!accessToken) return;
     setBusyPlan(plan);
@@ -152,8 +206,9 @@ export default function BillingPage() {
         return;
       }
 
-      setMessage(body.status === "updated" ? "Free plan selected." : "Plan updated.");
+      setMessage(body.status === "already_active" ? "This plan is already active." : body.status === "downgrade_scheduled" ? "Plan downgrade scheduled." : body.status === "plan_changed" ? "Plan changed with Stripe proration." : body.status === "updated" ? "Free plan selected." : "Plan updated.");
       await loadInvoices();
+      await loadSubscription();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Checkout session failed.");
     } finally {
@@ -164,6 +219,18 @@ export default function BillingPage() {
   useEffect(() => {
     void loadInvoices();
     void loadPaymentMethod();
+    void loadSubscription();
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken || typeof window === "undefined") return;
+    const searchParams = new URLSearchParams(window.location.search);
+    const checkout = searchParams.get("checkout");
+    const sessionId = searchParams.get("session_id");
+    const type = searchParams.get("type");
+    if (checkout === "success" && sessionId && type !== "credits") {
+      void syncPlanCheckout(sessionId);
+    }
   }, [accessToken]);
 
   return (
@@ -174,34 +241,43 @@ export default function BillingPage() {
             <h1 className="page-title">Billing and payments</h1>
             <p className="page-subtitle">Manage your plan, saved payment method, and invoice history.</p>
           </div>
-          <span className="status-badge neutral">{activeAccount?.name ?? "Active account"}</span>
+          <div className="button-row compact">
+            <span className="status-badge neutral">{activeAccount?.name ?? "Active account"}</span>
+            <span className="status-badge live">{subscription?.plan ? `${String(subscription.plan).toUpperCase()} plan` : "Free plan"}</span>
+          </div>
         </div>
 
         {(queryNotice || message || error) && (
           <article className="panel">
-            <p className={error ? "status-text danger" : "status-text success"}>{error ?? message ?? queryNotice}</p>
+            <p className={error ? "status-text danger" : "status-text success"}>{error ?? message ?? (syncingCheckout ? "Syncing checkout details..." : queryNotice)}</p>
           </article>
         )}
 
         <div className="pricing-grid">
-          {plans.map((plan) => (
-            <article className="price-card" key={plan.key}>
-              <h3>{plan.name}</h3>
-              <div className="price">
-                {plan.price}
-                <span>/mo</span>
-              </div>
-              <p>{plan.credits}</p>
-              <p>{plan.detail}</p>
-              <button className={plan.key === "free" ? "button secondary" : "button primary"} type="button" onClick={() => startCheckout(plan.key)} disabled={busyPlan !== null}>
-                {busyPlan === plan.key ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <CreditCard size={16} aria-hidden="true" />}
-                {busyPlan === plan.key ? "Opening checkout..." : plan.cta}
-              </button>
-            </article>
-          ))}
+          {plans.map((plan) => {
+            const selected = plan.key === currentPlan;
+            return (
+              <article className={`price-card ${selected ? "selected-card" : ""}`} key={plan.key}>
+                <div className="panel-header compact">
+                  <h3>{plan.name}</h3>
+                  {selected ? <span className="status-badge live">Active</span> : null}
+                </div>
+                <div className="price">
+                  {plan.price}
+                  <span>/mo</span>
+                </div>
+                <p>{plan.credits}</p>
+                <p>{plan.detail}</p>
+                <button className={selected || plan.key === "free" ? "button secondary" : "button primary"} type="button" onClick={() => startCheckout(plan.key)} disabled={busyPlan !== null || selected}>
+                  {busyPlan === plan.key ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <CreditCard size={16} aria-hidden="true" />}
+                  {busyPlan === plan.key ? "Updating plan..." : planActionLabel(plan.key, currentPlan)}
+                </button>
+              </article>
+            );
+          })}
         </div>
 
-        <article className="panel">
+        <article className="panel billing-payment-card">
           <div className="panel-header">
             <h2>Payment method</h2>
             <CreditCard size={22} color="var(--color-primary)" aria-hidden="true" />

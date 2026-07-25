@@ -21,7 +21,9 @@ export async function GET(request: NextRequest) {
 
   const upstreamUrl = new URL("/content/drafts", API_BASE_URL);
   const limit = request.nextUrl.searchParams.get("limit");
+  const status = request.nextUrl.searchParams.get("status");
   if (limit) upstreamUrl.searchParams.set("limit", limit);
+  if (status) upstreamUrl.searchParams.set("status", status);
 
   try {
     const upstream = await fetch(upstreamUrl, {

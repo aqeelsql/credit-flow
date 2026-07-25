@@ -37,21 +37,59 @@ class SchedulerRepository:
     async def create(self, account_id: str, user_id: str, content_id: str, content_title: str, publish_at: datetime, timezone_name: str, recurrence: str) -> dict[str, Any]:
         if publish_at <= datetime.now(timezone.utc):
             raise SchedulerError("publish_time_in_past", "Publish time must be in the future.", 422)
+        content_uuid = as_uuid(content_id)
+        title = content_title[:255] or "Untitled content"
         row = await self.conn.fetchrow(
             f"""
-            INSERT INTO scheduled_posts (account_id, created_by_user_id, content_id, content_title, publish_at, timezone, recurrence)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            UPDATE scheduled_posts
+            SET content_title = $3, publish_at = $4, timezone = $5, recurrence = $6,
+                status = 'scheduled', cancelled_at = NULL, dispatched_at = NULL, locked_at = NULL,
+                last_error = NULL, updated_at = now()
+            WHERE id = (
+                SELECT id FROM scheduled_posts
+                WHERE account_id = $1 AND content_id = $2 AND status = 'scheduled'
+                ORDER BY updated_at DESC
+                LIMIT 1
+            )
             RETURNING {RETURNING_COLUMNS}
             """,
             account_id,
-            user_id,
-            as_uuid(content_id),
-            content_title[:255] or "Untitled content",
+            content_uuid,
+            title,
             publish_at,
             timezone_name,
             recurrence,
         )
+        if row is None:
+            row = await self.conn.fetchrow(
+                f"""
+                INSERT INTO scheduled_posts (account_id, created_by_user_id, content_id, content_title, publish_at, timezone, recurrence)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                RETURNING {RETURNING_COLUMNS}
+                """,
+                account_id,
+                user_id,
+                content_uuid,
+                title,
+                publish_at,
+                timezone_name,
+                recurrence,
+            )
+        await self._cancel_duplicate_active_schedules(account_id, content_uuid, row["id"])
         return with_local_time(dict(row))
+
+    async def _cancel_duplicate_active_schedules(self, account_id: str, content_id: uuid.UUID, keep_id: uuid.UUID | str) -> None:
+        await self.conn.execute(
+            """
+            UPDATE scheduled_posts
+            SET status = 'cancelled', cancelled_at = now(), locked_at = NULL, updated_at = now(),
+                last_error = 'Superseded by a newer schedule for this content.'
+            WHERE account_id = $1 AND content_id = $2 AND id <> $3 AND status = 'scheduled'
+            """,
+            account_id,
+            content_id,
+            as_uuid(keep_id),
+        )
 
     async def list_range(self, account_id: str, start: datetime, end: datetime) -> list[dict[str, Any]]:
         rows = await self.conn.fetch(
@@ -88,6 +126,7 @@ class SchedulerRepository:
         )
         if row is None:
             raise SchedulerError("scheduled_post_not_found", "Scheduled post was not found or cannot be rescheduled.", 404)
+        await self._cancel_duplicate_active_schedules(account_id, as_uuid(row["content_id"]), row["id"])
         return with_local_time(dict(row))
 
     async def cancel(self, scheduled_post_id: str, account_id: str) -> dict[str, Any]:
