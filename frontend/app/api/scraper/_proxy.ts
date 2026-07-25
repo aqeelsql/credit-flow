@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const API_BASE_URL = process.env.API_GATEWAY_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 const SCRAPER_SERVICE_URL =
   process.env.SCRAPER_SERVICE_URL ??
   process.env.GATEWAY_SCRAPER_SERVICE_URL ??

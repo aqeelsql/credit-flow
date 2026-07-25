@@ -344,14 +344,15 @@ services:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+        NEXT_PUBLIC_API_BASE_URL: ""
         NEXT_PUBLIC_USE_LOCAL_AUTH: ${NEXT_PUBLIC_USE_LOCAL_AUTH:-false}
         NEXT_PUBLIC_USE_MOCK_AI: ${NEXT_PUBLIC_USE_MOCK_AI:-false}
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      NEXT_PUBLIC_API_BASE_URL: ""
       NEXT_PUBLIC_USE_LOCAL_AUTH: ${NEXT_PUBLIC_USE_LOCAL_AUTH:-false}
       NEXT_PUBLIC_USE_MOCK_AI: ${NEXT_PUBLIC_USE_MOCK_AI:-false}
+      API_GATEWAY_URL: http://api_gateway:8080
       AUTH_SERVICE_URL: http://auth_service:8000
       USER_TENANT_SERVICE_URL: http://user_tenant_service:8002
       ACCOUNT_SERVICE_URL: http://user_tenant_service:8002

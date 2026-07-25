@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { NextRequest } from "next/server";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const API_BASE_URL = process.env.API_GATEWAY_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 const ROOT_ENV_PATH = path.resolve(process.cwd(), "..", ".env");
 const MAX_LLM_PROMPT_CHARS = 9000;
 const DIRECT_LLM_TIMEOUT_MS = 90000;

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const API_BASE_URL = process.env.API_GATEWAY_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 const CREDITS_SERVICE_URL = process.env.CREDITS_SERVICE_URL ?? "http://localhost:8007";
 
 export const runtime = "nodejs";

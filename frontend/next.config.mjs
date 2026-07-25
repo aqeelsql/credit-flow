@@ -19,13 +19,14 @@ const rootEnv = fs.existsSync(rootEnvPath)
     )
   : {};
 
-const publicEnv = (name, fallback) => rootEnv[name] ?? process.env[name] ?? fallback;
+const publicEnv = (name, fallback) => process.env[name] ?? rootEnv[name] ?? fallback;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   env: {
     NEXT_PUBLIC_API_BASE_URL: publicEnv("NEXT_PUBLIC_API_BASE_URL", ""),
+    API_GATEWAY_URL: publicEnv("API_GATEWAY_URL", publicEnv("NEXT_PUBLIC_API_BASE_URL", "http://localhost:8000")),
     NEXT_PUBLIC_USE_LOCAL_AUTH: publicEnv("NEXT_PUBLIC_USE_LOCAL_AUTH", "false"),
     NEXT_PUBLIC_USE_MOCK_AI: publicEnv("NEXT_PUBLIC_USE_MOCK_AI", "false"),
     SCRAPER_SERVICE_URL: publicEnv("GATEWAY_SCRAPER_SERVICE_URL", "http://localhost:8012"),
