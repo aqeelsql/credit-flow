@@ -38,7 +38,7 @@ async def robots_allowed(url: str, settings: Settings) -> bool:
     parser = RobotFileParser()
     parser.set_url(robots_url)
     try:
-        async with httpx.AsyncClient(timeout=settings.request_timeout_seconds, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=settings.request_timeout_seconds, follow_redirects=True, trust_env=False) as client:
             response = await client.get(robots_url, headers={"User-Agent": settings.user_agent})
         if response.status_code >= 400:
             return True
@@ -81,7 +81,7 @@ async def crawl_url(url: str, settings: Settings) -> dict:
 
 async def crawl_url_with_http_fallback(url: str, settings: Settings, fallback_reason: str) -> dict:
     try:
-        async with httpx.AsyncClient(timeout=settings.request_timeout_seconds, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=settings.request_timeout_seconds, follow_redirects=True, trust_env=False) as client:
             response = await client.get(url, headers={"User-Agent": settings.user_agent})
         response.raise_for_status()
     except Exception as exc:
@@ -212,3 +212,4 @@ class ScrapeRunner:
         }
         document_id = await self.repo.store_document(as_jsonable(document))
         return {"document_id": document_id, "document": document}
+

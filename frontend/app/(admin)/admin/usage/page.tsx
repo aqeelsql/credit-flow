@@ -15,6 +15,7 @@ import { useAuth } from "@/lib/auth-context";
 
 type CreditPackage = { credits?: number; active?: boolean };
 type CreditPurchase = { credits?: number; amount_paid?: number; currency?: string };
+type InvoiceRecord = { amount_paid?: number; currency?: string; stripe_subscription_id?: string | null };
 
 export default function UsagePage() {
   const { accessToken, activeAccount, session } = useAuth();
@@ -46,7 +47,7 @@ export default function UsagePage() {
         return;
       }
 
-      const [packages, purchases] = await Promise.all([
+      const [packages, purchases, invoicesResponse] = await Promise.all([
         fetch("/api/billing/admin/credits/packages", {
           headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
           cache: "no-store"
@@ -54,12 +55,18 @@ export default function UsagePage() {
         fetch("/api/billing/admin/credits/purchases", {
           headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
           cache: "no-store"
-        }).then((response) => response.ok ? response.json() as Promise<CreditPurchase[]> : [])
+        }).then((response) => response.ok ? response.json() as Promise<CreditPurchase[]> : []),
+        fetch("/api/billing/admin/invoices", {
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+          cache: "no-store"
+        }).then((response) => response.ok ? response.json() as Promise<InvoiceRecord[]> : [])
       ]);
 
       const totalCreditsGenerated = packages.reduce((sum, item) => sum + Number(item.credits ?? 0), 0);
       const totalCreditsSold = purchases.length ? purchases.reduce((sum, item) => sum + Number(item.credits ?? 0), 0) : Number(summary.total_credits_sold ?? 0);
-      const totalMoneyGenerated = purchases.length ? purchases.reduce((sum, item) => sum + Number(item.amount_paid ?? 0), 0) : Number(summary.total_money_generated_cents ?? 0);
+      const invoiceRevenue = invoicesResponse.reduce((sum, item) => sum + Number(item.amount_paid ?? 0), 0);
+      const subscriptionRevenue = invoicesResponse.filter((item) => item.stripe_subscription_id).reduce((sum, item) => sum + Number(item.amount_paid ?? 0), 0);
+      const totalMoneyGenerated = invoiceRevenue || (purchases.length ? purchases.reduce((sum, item) => sum + Number(item.amount_paid ?? 0), 0) : Number(summary.total_money_generated_cents ?? 0));
       const activePackageCredits = packages.filter((item) => item.active !== false).reduce((sum, item) => sum + Number(item.credits ?? 0), 0);
       setOpsSummary({
         ...summary,
@@ -70,7 +77,9 @@ export default function UsagePage() {
         total_credits_sold: totalCreditsSold,
         credits_left: Math.max(totalCreditsGenerated - totalCreditsSold, 0),
         total_money_generated_cents: totalMoneyGenerated,
-        currency: purchases[0]?.currency || summary.currency || "usd",
+        subscription_revenue_cents: subscriptionRevenue || summary.subscription_revenue_cents || 0,
+        invoice_count: invoicesResponse.length || summary.invoice_count || 0,
+        currency: invoicesResponse[0]?.currency || purchases[0]?.currency || summary.currency || "usd",
         purchase_count: purchases.length || summary.purchase_count || 0
       });
     } catch {
@@ -118,6 +127,8 @@ export default function UsagePage() {
   const creditsLeft = Number(opsSummary?.credits_left ?? 0);
   const packageCount = Number(opsSummary?.package_count ?? 0);
   const purchaseCount = Number(opsSummary?.purchase_count ?? 0);
+  const invoiceCount = Number(opsSummary?.invoice_count ?? 0);
+  const subscriptionRevenue = (Number(opsSummary?.subscription_revenue_cents ?? 0) / 100).toLocaleString(undefined, { style: "currency", currency: (opsSummary?.currency || "usd").toUpperCase() });
   const activePackageCredits = Number(opsSummary?.active_package_credits ?? 0);
   const accountCount = Number(opsSummary?.account_count ?? 0);
   const moneyGenerated = (Number(opsSummary?.total_money_generated_cents ?? 0) / 100).toLocaleString(undefined, {
@@ -126,12 +137,16 @@ export default function UsagePage() {
   });
   const totals = useMemo(() => {
     const balance = numberFromRecord(overview?.credits, ["balance", "credits", "available_credits", "remaining_credits"]);
-    const quota = numberFromRecord(overview?.usage, ["quota_tokens", "quota", "monthly_quota", "limit"]);
+    const explicitQuota = numberFromRecord(overview?.usage, ["quota_tokens", "quota", "monthly_quota", "limit"]);
     const tokens = numberFromRecord(overview?.usage, ["used_tokens", "tokens_used", "total_tokens", "used", "usage"]);
-    const remainingTokens = numberFromRecord(overview?.usage, ["remaining_tokens"]);
+    const reportedRemaining = numberFromRecord(overview?.usage, ["remaining_tokens"]);
     const cost = numberFromRecord(overview?.usage, ["total_cost", "cost", "period_cost"]);
-    const ratio = quota > 0 ? Math.min(Math.round((tokens / quota) * 100), 100) : 0;
-    return { balance, quota, tokens, remainingTokens, cost, ratio };
+    const backendRatio = numberFromRecord(overview?.usage, ["usage_ratio_percent", "usage_ratio", "ratio"]);
+    const usageBase = explicitQuota > 0 ? explicitQuota : tokens + balance;
+    const remainingTokens = reportedRemaining || (explicitQuota > 0 ? Math.max(explicitQuota - tokens, 0) : balance);
+    const ratio = backendRatio > 0 ? Math.min(Math.round(backendRatio), 100) : usageBase > 0 ? Math.min(Math.round((tokens / usageBase) * 100), 100) : 0;
+    const ratioLabel = usageBase > 0 ? `${tokens.toLocaleString()} / ${usageBase.toLocaleString()} credits used` : "No usage data";
+    return { balance, quota: usageBase, tokens, remainingTokens, cost, ratio, ratioLabel };
   }, [overview]);
 
   return (
@@ -167,7 +182,7 @@ export default function UsagePage() {
             <DollarSign size={22} color="var(--color-primary)" aria-hidden="true" />
             <h3>Money generated</h3>
             <strong>{moneyGenerated}</strong>
-            <p>{accountCount.toLocaleString()} accounts</p>
+            <p>{invoiceCount.toLocaleString()} invoices - {subscriptionRevenue} subscriptions</p>
           </article>
         </div>
       ) : null}
@@ -205,13 +220,13 @@ export default function UsagePage() {
           <Activity size={22} color="var(--color-primary)" aria-hidden="true" />
           <h3>Tokens used</h3>
           <strong>{totals.tokens.toLocaleString()}</strong>
-          <p>{totals.quota ? `${totals.remainingTokens.toLocaleString()} tokens remaining` : `$${totals.cost.toFixed(4)} model cost`}</p>
+          <p>{totals.quota ? `${totals.remainingTokens.toLocaleString()} credits remaining` : `$${totals.cost.toFixed(4)} model cost`}</p>
         </article>
         <article className="metric-card">
           <Gauge size={22} color="var(--color-primary)" aria-hidden="true" />
           <h3>Usage ratio</h3>
           <strong>{totals.ratio}%</strong>
-          <p>{totals.quota ? `${totals.tokens.toLocaleString()} / ${totals.quota.toLocaleString()} tokens` : "No quota data"}</p>
+          <p>{totals.ratioLabel}</p>
         </article>
       </div>
 

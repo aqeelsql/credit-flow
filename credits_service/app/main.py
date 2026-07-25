@@ -156,6 +156,10 @@ async def handle_service_event(
         logging.warning("Skipped %s without account_id", routing_key)
         return
 
+    if routing_key == "ai.generation_completed" and payload.get("credits_already_charged"):
+        logging.info("Skipped %s because AI Generation Service already charged credits", routing_key)
+        return
+
     credits = generation_credits_from_payload(payload) if routing_key == "ai.generation_completed" else credits_from_payload(payload)
     if not credits:
         logging.warning("Skipped %s without credits amount", routing_key)

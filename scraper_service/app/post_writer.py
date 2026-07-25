@@ -62,7 +62,7 @@ async def generate_social_post(settings: Settings, pack: dict, output_type: str)
     last_error: Exception | None = None
     for model in models:
         try:
-            async with httpx.AsyncClient(timeout=settings.openrouter_timeout_seconds) as client:
+            async with httpx.AsyncClient(timeout=settings.openrouter_timeout_seconds, trust_env=False) as client:
                 response = await client.post(
                     f"{settings.openrouter_base_url.rstrip('/')}/chat/completions",
                     headers={"Authorization": f"Bearer {settings.openrouter_api_key}", "Content-Type": "application/json"},
@@ -87,7 +87,7 @@ async def generate_social_post(settings: Settings, pack: dict, output_type: str)
 async def save_content_draft(settings: Settings, principal, pack: dict, post_text: str, prompt: str) -> dict:
     title = f"Research post: {pack.get('topic', 'Untitled')}"[:180]
     try:
-        async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=settings.request_timeout_seconds, trust_env=False) as client:
             response = await client.post(
                 f"{settings.content_service_url.rstrip('/')}/drafts",
                 headers={
@@ -105,3 +105,4 @@ async def save_content_draft(settings: Settings, principal, pack: dict, post_tex
         raise
     except Exception as exc:
         raise ScraperError("content_draft_failed", f"Unable to save generated post as content draft: {exc}", 502) from exc
+

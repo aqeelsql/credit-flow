@@ -1,12 +1,15 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, Coins, Users, WalletCards, Zap } from "lucide-react";
 import { RouteGuard } from "@/components/RouteGuard/RouteGuard";
 import { useAuth } from "@/lib/auth-context";
 
 type BalanceResponse = { balance: number; low_balance_threshold?: number; is_low_balance?: boolean };
 type CreditTransaction = { id: string; amount: number; reason: string; source_event_id?: string | null; metadata?: Record<string, unknown>; created_at: string };
+type UsageSummary = { used_tokens: number };
+type TeamRow = { id: string; role: string; status: string };
+type SubscriptionProfile = { plan: string; status: string; current_period_end?: string | null };
 
 async function readError(response: Response) {
   try {
@@ -30,6 +33,8 @@ function OwnerDashboard() {
   const [balance, setBalance] = useState<number | null>(null);
   const [purchases, setPurchases] = useState<CreditTransaction[]>([]);
   const [creditsUsed, setCreditsUsed] = useState(0);
+  const [subscription, setSubscription] = useState<SubscriptionProfile | null>(null);
+  const [teamMemberCount, setTeamMemberCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -40,15 +45,35 @@ function OwnerDashboard() {
       if (!response.ok) throw new Error(await readError(response));
       const data = (await response.json()) as BalanceResponse;
       setBalance(data.balance);
-      const txResponse = await fetch("/api/credits/transactions?limit=10", { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" });
+      const [txResponse, usageResponse, subscriptionResponse, teamResponse] = await Promise.all([
+        fetch("/api/credits/transactions?limit=10", { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" }),
+        activeAccount?.id ? fetch(`/api/usage/usage/accounts/${encodeURIComponent(activeAccount.id)}/summary`, { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" }) : Promise.resolve(null),
+        fetch("/api/billing/billing/subscription", { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" }),
+        activeAccount?.id ? fetch(`/api/accounts/${encodeURIComponent(activeAccount.id)}/team`, { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" }) : Promise.resolve(null)
+      ]);
       if (txResponse.ok) {
         const transactions = (await txResponse.json()) as CreditTransaction[];
         setPurchases(transactions.filter((item) => item.amount > 0 && item.reason === "purchase").slice(0, 5));
-        setCreditsUsed(transactions.filter((item) => item.amount < 0).reduce((sum, item) => sum + Math.abs(item.amount), 0));
+      }
+      if (usageResponse && usageResponse.ok) {
+        const usage = (await usageResponse.json()) as UsageSummary;
+        setCreditsUsed(Number(usage.used_tokens ?? 0));
+      }
+      if (subscriptionResponse.ok) {
+        setSubscription((await subscriptionResponse.json()) as SubscriptionProfile);
+      }
+      if (teamResponse && teamResponse.ok) {
+        const rows = (await teamResponse.json()) as TeamRow[];
+        setTeamMemberCount(rows.filter((member) => member.status.toLowerCase() === "active" && member.role !== "Owner").length);
       }
     };
     load().catch((err) => setError(err instanceof Error ? err.message : "Unable to load credit balance."));
-  }, [accessToken]);
+  }, [accessToken, activeAccount?.id]);
+
+  const displayedTeamMembers = useMemo(() => {
+    if (teamMemberCount !== null) return teamMemberCount;
+    return Math.max((activeAccount?.teamSize ?? 1) - 1, 0);
+  }, [activeAccount?.teamSize, teamMemberCount]);
 
   return (
     <section className="page">
@@ -71,15 +96,15 @@ function OwnerDashboard() {
         </article>
         <article className="metric-card">
           <Zap size={22} color="var(--color-primary)" aria-hidden="true" />
-          <h3>Credits used</h3>
+          <h3>AI tokens used</h3>
           <strong>{creditsUsed.toLocaleString()}</strong>
-          <p>Track usage across generated content.</p>
+          <p>credits used for content generation.</p>
         </article>
         <article className="metric-card">
           <Users size={22} color="var(--color-primary)" aria-hidden="true" />
           <h3>Team size</h3>
-          <strong>{activeAccount?.teamSize ?? 0}</strong>
-          <p>Current plan: {activeAccount?.plan ?? "Unknown"}.</p>
+          <strong>{displayedTeamMembers.toLocaleString()}</strong>
+          <p>Current plan: {subscription?.plan ?? activeAccount?.plan ?? "Free"}.</p>
         </article>
       </div>
 

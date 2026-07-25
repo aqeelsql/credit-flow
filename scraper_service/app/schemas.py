@@ -41,6 +41,7 @@ class TopicResearchRequest(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+
 class ResearchJobRequest(TopicResearchRequest):
     cadence: str = Field(default="once", pattern="^(once|daily|weekly|monthly)$")
     auto_generate_post: bool = False

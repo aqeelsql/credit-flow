@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, Search, Users } from "lucide-react";
+import { Download, ExternalLink, RefreshCw, Search, Users } from "lucide-react";
 import {
   adminFetch,
   numberFromRecord,
@@ -28,6 +28,10 @@ function normalizeDirectoryResponse(response: DirectoryResponse) {
 function compactId(value?: string | null, size = 14) {
   if (!value) return "—";
   return value.length > size + 4 ? `${value.slice(0, size)}…${value.slice(-4)}` : value;
+}
+
+function money(cents?: number | null, currency = "usd") {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(Number(cents ?? 0) / 100);
 }
 
 export default function DirectoryPage() {
@@ -139,6 +143,7 @@ export default function DirectoryPage() {
                 <th>Credits</th>
                 <th>AI usage</th>
                 <th>Members</th>
+                <th>Invoices</th>
                 <th>Sync</th>
                 <th>Action</th>
               </tr>
@@ -158,10 +163,19 @@ export default function DirectoryPage() {
                       <br />
                       <span className="muted-text">{account.owner_email || "No owner email"}</span>
                     </td>
-                    <td>{account.plan}</td>
+                    <td>
+                      <strong>{account.subscription_plan ?? account.plan}</strong>
+                      <br />
+                      <span className="muted-text">{account.subscription_status ?? "No billing status"}</span>
+                    </td>
                     <td className="mono">{(account.credit_balance ?? account.credits).toLocaleString()}</td>
                     <td className="mono">{(account.tokens_used ?? 0).toLocaleString()}</td>
                     <td className="mono">{account.team_size.toLocaleString()}</td>
+                    <td>
+                      <span className="mono">{Number(account.invoice_count ?? 0).toLocaleString()}</span>
+                      <br />
+                      <span className="muted-text">{money(account.subscription_revenue_cents ?? 0)}</span>
+                    </td>
                     <td>{Object.keys(rowErrors).length ? <span className="status-badge warning">Partial</span> : <span className="status-badge live">Synced</span>}</td>
                     <td>
                       <button className="button ghost" type="button" onClick={() => void loadOverview(account.id)} disabled={loadingOverview && selectedAccountId === account.id}>
@@ -183,7 +197,7 @@ export default function DirectoryPage() {
           <div className="metric-grid with-top-gap">
             <article className="metric-card">
               <h3>Plan</h3>
-              <strong>{stringFromRecord(overview?.account, ["plan", "tier"], selectedAccount?.plan ?? "Unknown")}</strong>
+              <strong>{stringFromRecord(overview?.account, ["subscription_plan", "plan", "tier"], selectedAccount?.subscription_plan ?? selectedAccount?.plan ?? "Unknown")}</strong>
               <p>{stringFromRecord(overview?.account, ["name"], selectedAccount?.name ?? selectedAccountId)}</p>
             </article>
             <article className="metric-card">
@@ -219,6 +233,49 @@ export default function DirectoryPage() {
               </table>
             ) : (
               <div className="empty-state"><Users size={22} aria-hidden="true" /> {loadingOverview ? "Loading members..." : "Select Inspect to load member details."}</div>
+            )}
+          </div>
+
+          <div className="table-panel with-top-gap">
+            <div className="table-header">
+              <h2>Billing invoices</h2>
+              <span className="status-badge neutral">{overview?.invoices?.length ?? selectedAccount?.invoice_count ?? 0} invoices</span>
+            </div>
+            {overview?.invoices?.length ? (
+              <table className="data-table">
+                <thead><tr><th>Invoice</th><th>Plan</th><th>Amount</th><th>Status</th><th>Date</th><th>Open</th><th>Download</th></tr></thead>
+                <tbody>
+                  {overview.invoices.map((invoice) => (
+                    <tr key={invoice.id}>
+                      <td className="mono">{invoice.stripe_invoice_id ?? invoice.id}</td>
+                      <td>{invoice.subscription_plan ?? (invoice.stripe_subscription_id ? "Subscription" : "Credit purchase")}</td>
+                      <td className="mono">{money(invoice.amount_paid || invoice.amount_due, invoice.currency)}</td>
+                      <td><span className="status-badge success">{invoice.status}</span></td>
+                      <td className="mono">{new Date(invoice.created_at).toLocaleDateString()}</td>
+                      <td>
+                        {invoice.hosted_invoice_url ? (
+                          <a className="icon-button ghost" href={invoice.hosted_invoice_url} target="_blank" rel="noreferrer" aria-label="Open invoice">
+                            <ExternalLink size={16} aria-hidden="true" />
+                          </a>
+                        ) : (
+                          <span className="muted-text">-</span>
+                        )}
+                      </td>
+                      <td>
+                        {invoice.invoice_pdf ? (
+                          <a className="icon-button ghost" href={invoice.invoice_pdf} target="_blank" rel="noreferrer" download aria-label="Download invoice PDF">
+                            <Download size={16} aria-hidden="true" />
+                          </a>
+                        ) : (
+                          <span className="muted-text">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="empty-state">{loadingOverview ? "Loading invoices..." : "No invoices recorded for this account."}</div>
             )}
           </div>
 

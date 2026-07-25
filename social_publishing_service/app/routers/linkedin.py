@@ -1,13 +1,20 @@
 from fastapi import APIRouter, Request
+from pydantic import BaseModel, Field
 from fastapi.responses import RedirectResponse
 
 from app.auth import current_principal, require_admin
 from app.crypto import TokenCipher
 from app.linkedin import LinkedInClient
+from app.publisher import PublishPipeline
 from app.repository import SocialRepository
 from app.state import create_state, verify_state
 
 router = APIRouter(tags=["linkedin"])
+
+
+class PublishNowRequest(BaseModel):
+    content_id: str = Field(min_length=1)
+
 
 
 async def _status(request: Request):
@@ -96,6 +103,28 @@ async def disconnect(request: Request):
     async with request.app.state.database.transaction() as conn:
         connection = await SocialRepository(conn).disconnect(principal.account_id)
     return {"disconnected": bool(connection)}
+
+
+@router.post("/publish-now")
+@router.post("/linkedin/publish-now")
+async def publish_now(request: Request, body: PublishNowRequest):
+    principal = current_principal(request)
+    require_admin(principal)
+    cipher = TokenCipher(request.app.state.settings)
+    async with request.app.state.database.transaction() as conn:
+        repo = SocialRepository(conn)
+        result = await PublishPipeline(request.app.state.settings, cipher, request.app.state.events).publish_scheduled(
+            repo,
+            {
+                "event_id": f"content.publish_now:{principal.account_id}:{body.content_id}",
+                "account_id": principal.account_id,
+                "content_id": body.content_id,
+                "scheduled_post_id": None,
+                "published_by_user_id": principal.user_id,
+                "publish_mode": "now",
+            },
+        )
+    return {"status": "published", "job": result, "linkedin_post_url": result.get("linkedin_post_url"), "linkedin_post_id": result.get("linkedin_post_id")}
 
 
 @router.get("/jobs")

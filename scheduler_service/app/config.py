@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     lock_redis_url: str = Field(default="redis://localhost:6379/4", validation_alias=scheduler_env("LOCK_REDIS_URL"))
     scan_interval_seconds: int = Field(default=60, validation_alias=scheduler_env("SCAN_INTERVAL_SECONDS"))
     due_batch_size: int = Field(default=100, validation_alias=scheduler_env("DUE_BATCH_SIZE"))
+    embedded_scanner_enabled: bool = Field(default=True, validation_alias=scheduler_env("EMBEDDED_SCANNER_ENABLED"))
 
     rabbitmq_url: str = "amqp://guest:guest@localhost/"
     rabbitmq_exchange: str = "creditflow.events"

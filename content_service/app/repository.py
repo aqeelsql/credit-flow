@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 from uuid import UUID
 
@@ -137,3 +139,4 @@ class ContentRepository:
             """,
             (as_uuid(content["id"]), next_version, content["title"], content["body"], content.get("prompt"), content.get("image_url"), content.get("image_asset_ref"), content["status"], user_id or content["created_by_user_id"]),
         )
+

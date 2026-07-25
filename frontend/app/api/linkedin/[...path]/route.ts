@@ -3,25 +3,48 @@ import { NextRequest } from "next/server";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 const LINKEDIN_SERVICE_URL = process.env.LINKEDIN_SERVICE_URL ?? "http://localhost:8005";
 
-function forwardHeaders(request: NextRequest) {
-  const headers = new Headers({ "Content-Type": "application/json" });
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function decodeJwtPayload(token: string | null): Record<string, unknown> {
+  if (!token || !token.includes(".")) return {};
+  try {
+    const [, payload] = token.split(".");
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(Buffer.from(normalized, "base64").toString("utf8")) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function forwardHeaders(request: NextRequest, hasBody: boolean, directLinkedIn: boolean) {
+  const headers = new Headers();
   const authorization = request.headers.get("authorization");
   const cookie = request.headers.get("cookie");
+  const contentType = request.headers.get("content-type");
+  const token = authorization?.replace(/^Bearer\s+/i, "") ?? null;
+  const claims = decodeJwtPayload(token);
+
+  if (hasBody) headers.set("Content-Type", contentType ?? "application/json");
   if (authorization) headers.set("Authorization", authorization);
   if (cookie) headers.set("Cookie", cookie);
 
-  // Local-dev fallback when the browser is talking directly to the service without the API Gateway.
-  headers.set("x-user-id", request.headers.get("x-user-id") ?? "dev-user");
-  headers.set("x-account-id", request.headers.get("x-account-id") ?? "dev-account");
-  headers.set("x-role", request.headers.get("x-role") ?? "Owner");
+  if (directLinkedIn) {
+    headers.set("x-user-id", String(claims.sub ?? claims.user_id ?? "local-user"));
+    headers.set("x-account-id", String(claims.account_id ?? claims.accountId ?? ""));
+    headers.set("x-role", String(claims.role ?? "Owner"));
+    if (claims.email) headers.set("x-user-email", String(claims.email));
+  }
   return headers;
 }
 
 async function proxy(request: NextRequest, context: { params: Promise<{ path?: string[] }> }) {
   const params = await context.params;
   const path = `/${(params.path ?? []).join("/")}`;
-  const headers = forwardHeaders(request);
-  const body = ["GET", "HEAD"].includes(request.method) ? undefined : await request.text();
+  const directLinkedIn = !API_BASE_URL;
+  const hasBody = !["GET", "HEAD"].includes(request.method);
+  const headers = forwardHeaders(request, hasBody, directLinkedIn);
+  const body = hasBody ? await request.text() : undefined;
   const gatewayUrl = API_BASE_URL ? `${API_BASE_URL}/linkedin${path}` : "";
   const directUrl = `${LINKEDIN_SERVICE_URL}/linkedin${path}`;
 

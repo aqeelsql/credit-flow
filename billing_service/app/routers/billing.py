@@ -5,7 +5,7 @@ from app.database import Database
 from app.dependencies import current_principal, database_dep, require_internal, require_owner, require_superadmin, settings_dep
 from app.errors import BillingError
 from app.repository import BillingRepository
-from app.schemas import CheckoutSessionRequest, CheckoutSessionResponse, CreateCreditPackageRequest, CreditCheckoutRequest, CreditCheckoutResponse, CreditCheckoutSyncResponse, CreditPackageResponse, CreditPurchaseResponse, EscrowConfirmRequest, InternalCustomerRequest, InternalCustomerResponse, InvoiceListResponse, PaymentMethodResponse, PaymentMethodSetupResponse, Principal, RefundRequest, RefundResponse, UpdateCreditPackageRequest
+from app.schemas import AdminInvoiceResponse, AdminSubscriptionResponse, CheckoutSessionRequest, CheckoutSessionResponse, CheckoutSessionSyncResponse, CreateCreditPackageRequest, CreditCheckoutRequest, CreditCheckoutResponse, CreditCheckoutSyncResponse, CreditPackageResponse, CreditPurchaseResponse, EscrowConfirmRequest, InternalCustomerRequest, InternalCustomerResponse, InvoiceListResponse, PaymentMethodResponse, PaymentMethodSetupResponse, Principal, RefundRequest, RefundResponse, SubscriptionResponse, UpdateCreditPackageRequest
 from app.service import BillingService
 from app.stripe_client import StripeClient
 
@@ -24,6 +24,15 @@ async def create_checkout_session(payload: CheckoutSessionRequest, principal: Pr
     return CheckoutSessionResponse(**result)
 
 
+@router.post("/checkout/sessions/{session_id}/sync", response_model=CheckoutSessionSyncResponse)
+async def sync_checkout_session(session_id: str, principal: Principal = Depends(current_principal), db: Database = Depends(database_dep), service: BillingService = Depends(service_dep)):
+    account_id = require_owner(principal)
+    async with db.transaction() as conn:
+        result = await service.sync_subscription_checkout_session(BillingRepository(conn), session_id, account_id)
+    await service.grant_subscription_plan_direct(result)
+    return CheckoutSessionSyncResponse(**result)
+
+
 @router.get("/credits/packages", response_model=list[CreditPackageResponse])
 async def list_credit_packages(db: Database = Depends(database_dep)):
     async with db.acquire() as conn:
@@ -37,6 +46,22 @@ async def admin_list_credit_packages(principal: Principal = Depends(current_prin
     async with db.acquire() as conn:
         packages = await BillingRepository(conn).list_credit_packages(include_inactive=True)
     return [CreditPackageResponse(**package) for package in packages]
+
+
+@router.get("/admin/subscriptions", response_model=list[AdminSubscriptionResponse])
+async def admin_list_subscriptions(account_id: str | None = None, limit: int = 250, offset: int = 0, principal: Principal = Depends(current_principal), db: Database = Depends(database_dep)):
+    require_superadmin(principal)
+    async with db.acquire() as conn:
+        rows = await BillingRepository(conn).list_subscriptions(account_id=account_id, limit=limit, offset=offset)
+    return [AdminSubscriptionResponse(**row) for row in rows]
+
+
+@router.get("/admin/invoices", response_model=list[AdminInvoiceResponse])
+async def admin_list_invoices(account_id: str | None = None, limit: int = 250, offset: int = 0, principal: Principal = Depends(current_principal), db: Database = Depends(database_dep)):
+    require_superadmin(principal)
+    async with db.acquire() as conn:
+        rows = await BillingRepository(conn).list_admin_invoices(account_id=account_id, limit=limit, offset=offset)
+    return [AdminInvoiceResponse(**row) for row in rows]
 
 
 @router.get("/admin/credits/purchases", response_model=list[CreditPurchaseResponse])
@@ -86,6 +111,16 @@ async def sync_credit_checkout(session_id: str, principal: Principal = Depends(c
         result = await service.sync_credit_checkout_session(BillingRepository(conn), session_id, account_id)
     await service.grant_credit_purchase_direct(result)
     return CreditCheckoutSyncResponse(**result)
+
+
+@router.get("/billing/subscription", response_model=SubscriptionResponse)
+async def current_subscription(principal: Principal = Depends(current_principal), db: Database = Depends(database_dep)):
+    account_id = require_owner(principal)
+    async with db.acquire() as conn:
+        subscription = await BillingRepository(conn).get_subscription(account_id)
+    if not subscription:
+        return SubscriptionResponse(account_id=account_id, plan="free", status="active")
+    return SubscriptionResponse(**subscription)
 
 
 @router.get("/billing/invoices", response_model=InvoiceListResponse)

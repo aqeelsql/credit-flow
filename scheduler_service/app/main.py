@@ -10,6 +10,7 @@ from app.database import Database
 from app.errors import register_error_handlers
 from app.events import EventPublisher
 from app.routers import health, schedules
+from app.scanner import EmbeddedDuePostScanner
 
 
 @asynccontextmanager
@@ -19,15 +20,19 @@ async def lifespan(app: FastAPI):
     database = Database(settings)
     await database.connect()
     events = EventPublisher(settings)
+    scanner = EmbeddedDuePostScanner(settings)
     app.state.database = database
     app.state.events = events
+    app.state.scanner = scanner
     try:
         try:
             await events.connect()
         except Exception as exc:
             logging.warning("RabbitMQ unavailable for scheduler publish: %s", exc)
+        scanner.start()
         yield
     finally:
+        await scanner.stop()
         await events.close()
         await database.close()
 

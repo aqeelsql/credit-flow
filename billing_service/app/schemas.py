@@ -21,6 +21,20 @@ class CheckoutSessionResponse(BaseModel):
     plan: str
     status: str
 
+class CheckoutSessionSyncResponse(BaseModel):
+    status: str
+    event_id: str
+    account_id: str
+    plan: str
+    credits: int = 0
+    amount_paid: int = 0
+    currency: str = "usd"
+    stripe_subscription_id: str | None = None
+    invoice_id: str | None = None
+    stripe_invoice_id: str | None = None
+    hosted_invoice_url: str | None = None
+    invoice_pdf: str | None = None
+
 
 class CreditPackageResponse(BaseModel):
     id: str | None = None
@@ -91,6 +105,14 @@ class PaymentMethodSetupResponse(BaseModel):
     session_id: str
     status: str
 
+class SubscriptionResponse(BaseModel):
+    account_id: str
+    plan: str
+    status: str
+    stripe_customer_id: str | None = None
+    stripe_subscription_id: str | None = None
+    current_period_end: datetime | None = None
+
 
 class SavedPaymentMethod(BaseModel):
     stripe_payment_method_id: str
@@ -119,6 +141,23 @@ class InvoiceResponse(BaseModel):
 
 class InvoiceListResponse(BaseModel):
     items: list[InvoiceResponse]
+
+class AdminInvoiceResponse(InvoiceResponse):
+    account_id: str | None = None
+    stripe_customer_id: str | None = None
+    stripe_subscription_id: str | None = None
+
+
+class AdminSubscriptionResponse(BaseModel):
+    id: str
+    account_id: str
+    plan: str
+    status: str
+    stripe_customer_id: str | None = None
+    stripe_subscription_id: str | None = None
+    current_period_end: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class RefundRequest(BaseModel):

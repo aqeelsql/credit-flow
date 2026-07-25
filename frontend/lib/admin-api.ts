@@ -23,12 +23,28 @@ export type AdminAuditResponse = {
   items: AdminAuditItem[];
 };
 
+export type AdminInvoice = {
+  id: string;
+  account_id?: string | null;
+  stripe_invoice_id?: string | null;
+  stripe_subscription_id?: string | null;
+  amount_paid: number;
+  amount_due: number;
+  currency: string;
+  status: string;
+  hosted_invoice_url?: string | null;
+  invoice_pdf?: string | null;
+  subscription_plan?: string | null;
+  created_at: string;
+};
+
 export type AdminAccountOverview = {
   account_id: string;
   account?: Record<string, unknown> | null;
   credits?: Record<string, unknown> | null;
   usage?: Record<string, unknown> | null;
   members?: Record<string, unknown>[] | null;
+  invoices?: AdminInvoice[] | null;
   errors?: Record<string, string>;
 };
 
@@ -41,6 +57,11 @@ export type AdminAccountDirectoryItem = {
   team_size: number;
   owner_name?: string | null;
   owner_email?: string | null;
+  subscription_plan?: string | null;
+  subscription_status?: string | null;
+  stripe_subscription_id?: string | null;
+  invoice_count?: number;
+  subscription_revenue_cents?: number;
   created_at: string;
   updated_at: string;
 };
@@ -53,6 +74,9 @@ export type AdminOpsSummary = {
   package_count: number;
   active_package_count: number;
   total_money_generated_cents: number;
+  subscription_revenue_cents?: number;
+  credit_purchase_revenue_cents?: number;
+  invoice_count?: number;
   currency: string;
   purchase_count: number;
   account_count: number;

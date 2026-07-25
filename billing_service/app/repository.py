@@ -20,6 +20,65 @@ class BillingRepository:
         row = await self.conn.fetchrow("SELECT *, id::text AS id FROM subscriptions WHERE account_id = $1", account_id)
         return dict(row) if row else None
 
+    async def list_subscriptions(self, account_id: str | None = None, limit: int = 250, offset: int = 0) -> list[dict[str, Any]]:
+        params: list[Any] = []
+        where_sql = ""
+        if account_id:
+            params.append(account_id)
+            where_sql = f"WHERE account_id = ${len(params)}"
+        params.extend([limit, offset])
+        rows = await self.conn.fetch(
+            f"""
+            SELECT id::text AS id, account_id, stripe_customer_id, stripe_subscription_id,
+                plan, status, current_period_end, created_at, updated_at
+            FROM subscriptions
+            {where_sql}
+            ORDER BY updated_at DESC
+            LIMIT ${len(params) - 1} OFFSET ${len(params)}
+            """,
+            *params,
+        )
+        return [dict(row) for row in rows]
+
+    async def list_admin_invoices(self, account_id: str | None = None, limit: int = 250, offset: int = 0) -> list[dict[str, Any]]:
+        params: list[Any] = []
+        where_sql = ""
+        if account_id:
+            params.append(account_id)
+            where_sql = f"WHERE account_id = ${len(params)}"
+        params.extend([limit, offset])
+        rows = await self.conn.fetch(
+            f"""
+            SELECT id::text AS id, account_id, stripe_invoice_id, stripe_customer_id, stripe_subscription_id,
+                amount_paid, amount_due, currency, status, hosted_invoice_url, invoice_pdf, created_at
+            FROM invoices
+            {where_sql}
+            ORDER BY created_at DESC
+            LIMIT ${len(params) - 1} OFFSET ${len(params)}
+            """,
+            *params,
+        )
+        return [dict(row) for row in rows]
+
+    async def find_subscription_for_stripe_refs(self, customer_id: str | None, subscription_id: str | None) -> dict[str, Any] | None:
+        row = await self.conn.fetchrow(
+            """
+            SELECT *, id::text AS id
+            FROM subscriptions
+            WHERE ($1::text IS NOT NULL AND $1 <> '' AND stripe_customer_id = $1)
+               OR ($2::text IS NOT NULL AND $2 <> '' AND stripe_subscription_id = $2)
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            customer_id,
+            subscription_id,
+        )
+        return dict(row) if row else None
+
+    async def find_account_for_stripe_refs(self, customer_id: str | None, subscription_id: str | None) -> str | None:
+        subscription = await self.find_subscription_for_stripe_refs(customer_id, subscription_id)
+        return str(subscription["account_id"]) if subscription else None
+
     async def upsert_customer(self, account_id: str, stripe_customer_id: str, plan: str = "free", metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         row = await self.conn.fetchrow(
             """
@@ -143,6 +202,24 @@ class BillingRepository:
         return dict(row)
 
     async def upsert_credit_checkout_invoice(self, *, account_id: str, session: dict[str, Any], event_id: str, raw_event: dict[str, Any]) -> dict[str, Any]:
+        invoice_ref = session.get("invoice")
+        if isinstance(invoice_ref, dict):
+            invoice_obj = invoice_ref
+        elif hasattr(invoice_ref, "to_dict_recursive"):
+            invoice_obj = invoice_ref.to_dict_recursive()
+        else:
+            invoice_obj = {}
+        invoice_ref_id = getattr(invoice_ref, "id", None)
+        stripe_invoice_id = str(invoice_obj.get("id") or invoice_ref_id or invoice_ref or session.get("id"))
+        hosted_invoice_url = invoice_obj.get("hosted_invoice_url")
+        invoice_pdf = invoice_obj.get("invoice_pdf")
+        status = str(invoice_obj.get("status") or ("paid" if str(session.get("payment_status") or "").lower() == "paid" else session.get("status") or "received"))
+        amount_paid = int(invoice_obj.get("amount_paid") or session.get("amount_total") or session.get("amount_subtotal") or 0)
+        amount_due = int(invoice_obj.get("amount_due") or 0)
+        currency = str(invoice_obj.get("currency") or session.get("currency") or "usd")
+        customer_id = invoice_obj.get("customer") or session.get("customer")
+        subscription_id = invoice_obj.get("subscription")
+
         row = await self.conn.fetchrow(
             """
             INSERT INTO invoices (
@@ -161,13 +238,17 @@ class BillingRepository:
                 created_at,
                 updated_at
             )
-            VALUES ($1, $2, $3, NULL, $4, 0, $5, $6, NULL, NULL, $7, $8::jsonb, now(), now())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, now(), now())
             ON CONFLICT (stripe_invoice_id) DO UPDATE SET
                 account_id = EXCLUDED.account_id,
-                stripe_customer_id = EXCLUDED.stripe_customer_id,
+                stripe_customer_id = COALESCE(EXCLUDED.stripe_customer_id, invoices.stripe_customer_id),
+                stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id, invoices.stripe_subscription_id),
                 amount_paid = EXCLUDED.amount_paid,
+                amount_due = EXCLUDED.amount_due,
                 currency = EXCLUDED.currency,
                 status = EXCLUDED.status,
+                hosted_invoice_url = COALESCE(EXCLUDED.hosted_invoice_url, invoices.hosted_invoice_url),
+                invoice_pdf = COALESCE(EXCLUDED.invoice_pdf, invoices.invoice_pdf),
                 stripe_event_id = EXCLUDED.stripe_event_id,
                 raw_event = EXCLUDED.raw_event,
                 updated_at = now()
@@ -176,11 +257,15 @@ class BillingRepository:
                 raw_event, created_at, updated_at
             """,
             account_id,
-            str(session.get("id")),
-            str(session.get("customer")) if session.get("customer") else None,
-            int(session.get("amount_total") or session.get("amount_subtotal") or 0),
-            str(session.get("currency") or "usd"),
-            "paid" if str(session.get("payment_status") or "").lower() == "paid" else str(session.get("status") or "received"),
+            stripe_invoice_id,
+            str(customer_id) if customer_id else None,
+            str(subscription_id) if subscription_id else None,
+            amount_paid,
+            amount_due,
+            currency,
+            status,
+            hosted_invoice_url,
+            invoice_pdf,
             event_id,
             _json(raw_event),
         )

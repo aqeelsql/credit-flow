@@ -117,7 +117,9 @@ class SocialRepository:
                 json.dumps(payload, default=str),
             )
         except UniqueViolationError:
-            return await self.conn.fetchrow(f"SELECT {JOB_COLUMNS} FROM publish_jobs WHERE account_id = $1 AND scheduled_post_id = $2::uuid", account_id, scheduled_post_id)
+            if scheduled_post_id:
+                return await self.conn.fetchrow(f"SELECT {JOB_COLUMNS} FROM publish_jobs WHERE account_id = $1 AND scheduled_post_id = $2::uuid", account_id, scheduled_post_id)
+            return await self.conn.fetchrow(f"SELECT {JOB_COLUMNS} FROM publish_jobs WHERE account_id = $1 AND content_id = $2::uuid ORDER BY created_at DESC LIMIT 1", account_id, content_id)
 
     async def mark_job_publishing(self, job_id: str, connection_id: str) -> dict:
         return await self.conn.fetchrow(f"UPDATE publish_jobs SET status = 'publishing', connection_id = $2, attempts = attempts + 1, updated_at = now() WHERE id = $1 RETURNING {JOB_COLUMNS}", job_id, connection_id)

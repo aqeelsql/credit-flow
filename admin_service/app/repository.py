@@ -106,11 +106,16 @@ class PlatformReadRepository:
                 a.id::text AS id,
                 a.name,
                 a.type::text AS type,
-                a.plan,
+                COALESCE(bsub.plan, a.plan)::text AS plan,
                 a.credits,
                 COALESCE(active_members.team_size, 0)::int AS team_size,
                 COALESCE(owner.name, split_part(owner.email, '@', 1)) AS owner_name,
                 owner.email AS owner_email,
+                bsub.plan::text AS subscription_plan,
+                bsub.status::text AS subscription_status,
+                bsub.stripe_subscription_id,
+                COALESCE(invoice_stats.invoice_count, 0)::int AS invoice_count,
+                COALESCE(invoice_stats.subscription_revenue_cents, 0)::bigint AS subscription_revenue_cents,
                 a.created_at::text AS created_at,
                 a.updated_at::text AS updated_at
             FROM "{s}".accounts a
@@ -128,8 +133,40 @@ class PlatformReadRepository:
                 ORDER BY om.created_at ASC
                 LIMIT 1
             ) owner ON true
+            LEFT JOIN "{self.billing_schema}".subscriptions bsub ON bsub.account_id = a.id::text
+            LEFT JOIN LATERAL (
+                SELECT
+                    COUNT(*)::int AS invoice_count,
+                    COALESCE(SUM(CASE WHEN inv.stripe_subscription_id IS NOT NULL THEN inv.amount_paid ELSE 0 END), 0)::bigint AS subscription_revenue_cents
+                FROM "{self.billing_schema}".invoices inv
+                WHERE inv.account_id = a.id::text
+            ) invoice_stats ON true
             {where_sql}
             ORDER BY a.created_at DESC
+            LIMIT ${len(params) - 1} OFFSET ${len(params)}
+            """,
+            *params,
+        )
+        return [dict(row) for row in rows]
+
+    async def list_invoices(self, *, account_id: str | None = None, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        params: list[Any] = []
+        where_sql = ""
+        if account_id:
+            params.append(account_id)
+            where_sql = f"WHERE inv.account_id = ${len(params)}"
+        params.extend([limit, offset])
+        s = self.billing_schema
+        rows = await self.conn.fetch(
+            f"""
+            SELECT inv.id::text AS id, inv.account_id, inv.stripe_invoice_id, inv.stripe_customer_id,
+                inv.stripe_subscription_id, inv.amount_paid, inv.amount_due, inv.currency, inv.status,
+                inv.hosted_invoice_url, inv.invoice_pdf, inv.created_at::text AS created_at,
+                sub.plan AS subscription_plan
+            FROM "{s}".invoices inv
+            LEFT JOIN "{s}".subscriptions sub ON sub.account_id = inv.account_id
+            {where_sql}
+            ORDER BY inv.created_at DESC
             LIMIT ${len(params) - 1} OFFSET ${len(params)}
             """,
             *params,
@@ -150,12 +187,20 @@ class PlatformReadRepository:
             ), purchase_totals AS (
                 SELECT
                     COALESCE(SUM(COALESCE(NULLIF(payload->>'credits_delta', ''), NULLIF(payload->>'credits', ''), '0')::bigint), 0)::bigint AS total_credits_sold,
-                    COALESCE(SUM(COALESCE(NULLIF(payload->>'amount_paid', ''), '0')::bigint), 0)::bigint AS total_money_generated_cents,
+                    COALESCE(SUM(COALESCE(NULLIF(payload->>'amount_paid', ''), '0')::bigint), 0)::bigint AS credit_purchase_revenue_cents,
                     COUNT(*)::int AS purchase_count,
                     COALESCE(mode() WITHIN GROUP (ORDER BY COALESCE(payload->>'currency', 'usd')), 'usd') AS currency
                 FROM "{s}".outbox_events
                 WHERE routing_key = 'invoice.paid'
                   AND payload->>'purpose' = 'credit_purchase'
+            ), invoice_totals AS (
+                SELECT
+                    COALESCE(SUM(amount_paid), 0)::bigint AS total_invoice_revenue_cents,
+                    COALESCE(SUM(CASE WHEN stripe_subscription_id IS NOT NULL THEN amount_paid ELSE 0 END), 0)::bigint AS subscription_revenue_cents,
+                    COUNT(*)::int AS invoice_count,
+                    COALESCE(mode() WITHIN GROUP (ORDER BY currency), 'usd') AS invoice_currency
+                FROM "{s}".invoices
+                WHERE status IN ('paid', 'succeeded')
             )
             SELECT
                 package_totals.total_credits_generated,
@@ -163,11 +208,14 @@ class PlatformReadRepository:
                 package_totals.active_package_credits,
                 package_totals.active_package_count,
                 purchase_totals.total_credits_sold,
-                purchase_totals.total_money_generated_cents,
+                invoice_totals.total_invoice_revenue_cents AS total_money_generated_cents,
+                purchase_totals.credit_purchase_revenue_cents,
+                invoice_totals.subscription_revenue_cents,
+                invoice_totals.invoice_count,
                 purchase_totals.purchase_count,
-                purchase_totals.currency,
+                COALESCE(invoice_totals.invoice_currency, purchase_totals.currency, 'usd') AS currency,
                 GREATEST(package_totals.total_credits_generated - purchase_totals.total_credits_sold, 0)::bigint AS credits_left
-            FROM package_totals, purchase_totals
+            FROM package_totals, purchase_totals, invoice_totals
             """
         )
         return dict(row) if row else {
@@ -177,6 +225,9 @@ class PlatformReadRepository:
             "active_package_count": 0,
             "total_credits_sold": 0,
             "total_money_generated_cents": 0,
+            "credit_purchase_revenue_cents": 0,
+            "subscription_revenue_cents": 0,
+            "invoice_count": 0,
             "purchase_count": 0,
             "currency": "usd",
             "credits_left": 0,
