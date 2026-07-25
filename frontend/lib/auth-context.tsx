@@ -300,7 +300,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const signup = useCallback(async (name: string, email: string, password: string, accountName?: string, inviteCode?: string) => {
-    return appRequest<SignupResponse>("/api/auth/signup", null, {
+    const response = await appRequest<SignupResponse & Partial<TokenResponse>>("/api/auth/signup", null, {
       method: "POST",
       body: JSON.stringify({ name: name.trim(), email: email.trim(), password, account_name: accountName || undefined, invite_code: inviteCode || undefined })
     });
