@@ -10,6 +10,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY migrations ./migrations
 
+RUN groupadd --system app && useradd --system --gid app --home-dir /app appuser && chown -R appuser:app /app
+USER appuser
+
 EXPOSE 8006
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8006"]
 

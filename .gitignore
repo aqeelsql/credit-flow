@@ -1,5 +1,6 @@
 # Local secrets and machine-specific settings
 .env
+.env.backup-*
 
 # Generated dependencies/build artifacts
 node_modules/

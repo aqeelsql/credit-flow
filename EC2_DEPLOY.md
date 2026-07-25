@@ -1,6 +1,6 @@
 # CreditFlow EC2 Docker Deployment
 
-This deployment uses `docker-compose.ec2.yml` to run the frontend, API Gateway, PostgreSQL, Redis, RabbitMQ, MongoDB, and the implemented backend services.
+This deployment uses the single `docker-compose.yml` file to run the frontend, API Gateway, PostgreSQL, Redis, RabbitMQ, MongoDB, and the implemented backend services.
 
 ## 1. Prepare EC2
 
@@ -37,7 +37,7 @@ Keep your real API keys in `.env`; it is passed at container runtime and is not 
 ## 3. Build and start
 
 ```bash
-docker compose -f docker-compose.ec2.yml up -d --build
+docker compose up -d --build
 ```
 
 If a build fails with `No space left on device`, clean partial Docker build layers and try again:
@@ -86,19 +86,19 @@ sudo resize2fs /dev/nvme0n1p1
 Check logs:
 
 ```bash
-docker compose -f docker-compose.ec2.yml logs -f api_gateway frontend social_publishing_service
+docker compose logs -f api_gateway frontend social_publishing_service
 ```
 
 Stop everything:
 
 ```bash
-docker compose -f docker-compose.ec2.yml down
+docker compose down
 ```
 
 Stop and remove local databases too:
 
 ```bash
-docker compose -f docker-compose.ec2.yml down -v
+docker compose down -v
 ```
 
 ## 4. LinkedIn app settings
@@ -110,3 +110,5 @@ http://YOUR_EC2_PUBLIC_IP_OR_DOMAIN:8005/linkedin/callback
 ```
 
 If you put the API behind Nginx/HTTPS later, change both LinkedIn Developer Portal and `.env` to the HTTPS callback URL.
+
+

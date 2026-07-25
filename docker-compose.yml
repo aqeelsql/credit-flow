@@ -1,4 +1,10 @@
-﻿services:
+﻿x-app-healthcheck-defaults: &app_healthcheck_defaults
+  interval: 30s
+  timeout: 5s
+  retries: 5
+  start_period: 20s
+
+services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -72,6 +78,9 @@
         condition: service_healthy
     ports:
       - "8001:8000"
+    healthcheck:
+      <<: *app_healthcheck_defaults
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()\""]
 
   content_service:
     build: ./content_service
@@ -85,6 +94,9 @@
     depends_on: *core_depends
     ports:
       - "8003:8003"
+    healthcheck:
+      <<: *app_healthcheck_defaults
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health', timeout=3).read()\""]
 
   user_tenant_service:
     build: ./user_tenant_service
@@ -95,6 +107,9 @@
     depends_on: *core_depends
     ports:
       - "8002:8002"
+    healthcheck:
+      <<: *app_healthcheck_defaults
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=3).read()\""]
 
   credits_service:
     build: ./credits_service
@@ -105,6 +120,9 @@
     depends_on: *core_depends
     ports:
       - "8007:8007"
+    healthcheck:
+      <<: *app_healthcheck_defaults
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8007/health', timeout=3).read()\""]
 
   admin_service:
     build: ./admin_service
@@ -119,6 +137,9 @@
     depends_on: *core_depends
     ports:
       - "8008:8008"
+    healthcheck:
+      <<: *app_healthcheck_defaults
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8008/health', timeout=3).read()\""]
 
   billing_service:
     build: ./billing_service
@@ -131,6 +152,9 @@
     depends_on: *core_depends
     ports:
       - "8006:8006"
+    healthcheck:
+      <<: *app_healthcheck_defaults
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8006/health', timeout=3).read()\""]
 
   usage_service:
     build: ./usage_service
@@ -142,6 +166,9 @@
     depends_on: *core_depends
     ports:
       - "8009:8009"
+    healthcheck:
+      <<: *app_healthcheck_defaults
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8009/health', timeout=3).read()\""]
 
   notification_service:
     build: ./notification_service
@@ -154,6 +181,9 @@
     depends_on: *core_depends
     ports:
       - "8013:8013"
+    healthcheck:
+      <<: *app_healthcheck_defaults
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8013/health', timeout=3).read()\""]
       
   scheduler_api:
     build: ./scheduler_service
@@ -164,9 +194,13 @@
       SCHEDULER_CELERY_BROKER_URL: redis://redis:6379/2
       SCHEDULER_CELERY_RESULT_BACKEND: redis://redis:6379/3
       SCHEDULER_LOCK_REDIS_URL: redis://redis:6379/4
+      SCHEDULER_EMBEDDED_SCANNER_ENABLED: "false"
     depends_on: *core_depends
     ports:
       - "8004:8004"
+    healthcheck:
+      <<: *app_healthcheck_defaults
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/health', timeout=3).read()\""]
 
   scheduler_worker:
     build: ./scheduler_service
@@ -214,6 +248,9 @@
         condition: service_started
     ports:
       - "8010:8010"
+    healthcheck:
+      <<: *app_healthcheck_defaults
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=3).read()\""]
 
   scraper_service:
     build: ./scraper_service
@@ -234,6 +271,9 @@
         condition: service_healthy
     ports:
       - "8012:8012"
+    healthcheck:
+      <<: *app_healthcheck_defaults
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8012/health', timeout=3).read()\""]
 
   social_publishing_service:
     build: ./social_publishing_service
@@ -242,11 +282,17 @@
     environment:
       <<: *common_env
       SOCIAL_PUBLISHING_CONTENT_SERVICE_URL: http://content_service:8003
+      SOCIAL_PUBLISHING_CONTENT_UPLOAD_DIR: /app/uploads
       LINKEDIN_REDIRECT_URI: ${LINKEDIN_REDIRECT_URI:-http://localhost:8005/linkedin/callback}
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
+    volumes:
+      - content_uploads:/app/uploads:ro
     depends_on: *core_depends
     ports:
       - "8005:8005"
+    healthcheck:
+      <<: *app_healthcheck_defaults
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8005/health', timeout=3).read()\""]
 
   api_gateway:
     build: ./api_gateway
@@ -290,6 +336,9 @@
         condition: service_started
     ports:
       - "8000:8080"
+    healthcheck:
+      <<: *app_healthcheck_defaults
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=3).read()\""]
 
   frontend:
     build:
@@ -303,13 +352,26 @@
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
       NEXT_PUBLIC_USE_LOCAL_AUTH: ${NEXT_PUBLIC_USE_LOCAL_AUTH:-false}
       NEXT_PUBLIC_USE_MOCK_AI: ${NEXT_PUBLIC_USE_MOCK_AI:-false}
+      AUTH_SERVICE_URL: http://auth_service:8000
+      USER_TENANT_SERVICE_URL: http://user_tenant_service:8002
+      ACCOUNT_SERVICE_URL: http://user_tenant_service:8002
+      CONTENT_SERVICE_URL: http://content_service:8003
+      BILLING_SERVICE_URL: http://billing_service:8006
+      CREDITS_SERVICE_URL: http://credits_service:8007
+      ADMIN_SERVICE_URL: http://admin_service:8008
+      USAGE_SERVICE_URL: http://usage_service:8009
       SCRAPER_SERVICE_URL: http://scraper_service:8012
       LINKEDIN_SERVICE_URL: http://social_publishing_service:8005
+      JWT_SECRET: ${JWT_SECRET:-dev-change-me}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
     depends_on:
       api_gateway:
         condition: service_started
     ports:
       - "3000:3000"
+    healthcheck:
+      <<: *app_healthcheck_defaults
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
 
 volumes:
   postgres_data:
