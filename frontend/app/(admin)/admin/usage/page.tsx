@@ -108,19 +108,10 @@ export default function UsagePage() {
     setLoading(true);
     setError(null);
     try {
-      if (isSuperAdmin) {
-        setPlatformOverview(await adminFetch<AdminPlatformOverview>("/platform/overview?limit=100", accessToken));
-        setOverview(null);
-      } else {
-        const targetAccountId = (accountId || activeAccount?.id || "").trim();
-        if (!targetAccountId) throw new Error("No active account selected.");
-        setOverview(await adminFetch<AdminAccountOverview>(`/accounts/${encodeURIComponent(targetAccountId)}/overview`, accessToken));
-        setPlatformOverview(null);
-      }
+      setOverview(await adminFetch<AdminAccountOverview>(`/accounts/${encodeURIComponent(targetAccountId)}/overview`, accessToken));
     } catch (err) {
       setOverview(null);
-      setPlatformOverview(null);
-      setError(err instanceof Error ? err.message : "Unable to load operations data.");
+      setError(err instanceof Error ? err.message : "Unable to load account usage.");
     } finally {
       setLoading(false);
     }
@@ -157,11 +148,6 @@ export default function UsagePage() {
     const ratioLabel = usageBase > 0 ? `${tokens.toLocaleString()} / ${usageBase.toLocaleString()} credits used` : "No usage data";
     return { balance, quota: usageBase, tokens, remainingTokens, cost, ratio, ratioLabel };
   }, [overview]);
-
-  const platformTotals = platformOverview?.totals ?? {};
-  const globalUsage = platformOverview?.global_usage ?? null;
-  const platformTokens = numberFromRecord(globalUsage, ["used_tokens", "tokens_used", "total_tokens"]) || Number(platformTotals.tokens_used ?? 0);
-  const platformCost = numberFromRecord(globalUsage, ["total_cost", "cost"]) || Number(platformTotals.usage_cost ?? 0);
 
   return (
     <section className="page">
