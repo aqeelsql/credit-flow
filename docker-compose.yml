@@ -1,4 +1,4 @@
-﻿x-app-healthcheck-defaults: &app_healthcheck_defaults
+x-app-healthcheck-defaults: &app_healthcheck_defaults
   interval: 30s
   timeout: 5s
   retries: 5
@@ -69,6 +69,10 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-creditflow}:${RABBITMQ_DEFAULT_PASS:-creditflow-change-me}@rabbitmq:5672/
       RABBITMQ_EXCHANGE: creditflow.events
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      AUTH_FRONTEND_BASE_URL: ${AUTH_FRONTEND_BASE_URL:-http://localhost:3000}
+      NOTIFICATION_FRONTEND_BASE_URL: ${NOTIFICATION_FRONTEND_BASE_URL:-http://localhost:3000}
     depends_on: &core_depends
       postgres:
         condition: service_healthy
@@ -381,4 +385,5 @@ volumes:
   mongo_data:
   content_uploads:
   scraper_runtime:
+
 

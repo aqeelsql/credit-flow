@@ -27,9 +27,11 @@ def recipient_for_event(event_type: str, payload: dict[str, Any], settings: Sett
 
 def _verify_url(payload: dict[str, Any], settings: Settings) -> str:
     token = payload.get("verification_token") or payload.get("token") or ""
+    if token:
+        return f"{settings.frontend_base_url.rstrip('/')}/verify-email?token={token}"
     if payload.get("verification_url"):
         return str(payload["verification_url"])
-    return f"{settings.frontend_base_url.rstrip('/')}/verify-email?token={token}"
+    return f"{settings.frontend_base_url.rstrip('/')}/verify-email"
 
 
 def build_email(event_type: str, payload: dict[str, Any], settings: Settings) -> dict[str, str]:

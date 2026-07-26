@@ -10,3 +10,5 @@ build/
 *.tsbuildinfo
 __pycache__/
 *.py[cod]
+.env_ec2
+env_ec2

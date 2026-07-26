@@ -36,9 +36,8 @@ CreditFlow/
 +-- scraper_service/             # SerpAPI/Crawl4AI research scraping into MongoDB
 +-- notification_service/        # Email notifications and notification audit log
 +-- admin_service/               # SuperAdmin/Ops console APIs and audit log
-+-- docker-compose.yml           # Single local/EC2 Docker Compose stack
-+-- .env_example                 # Safe environment template
-+-- EC2_DEPLOY.md                # EC2 deployment notes
++-- docker-compose.yml           # Single Docker Compose stack
++-- .env_example                 # Safe local environment template`r`n+-- env_ec2                      # Safe EC2 environment template
 ```
 
 ## Services and default ports
@@ -122,20 +121,29 @@ docker compose down -v
 - RabbitMQ Management: <http://localhost:15672>
 - LinkedIn OAuth callback service: <http://localhost:8005>
 
-## Deployment note
 
-For an educational EC2 deployment without a domain, use the EC2 public IP in `.env` values such as `FRONTEND_BASE_URL`, `NEXT_PUBLIC_API_BASE_URL`, `ALLOWED_ORIGINS`, `LINKEDIN_REDIRECT_URI`, and Stripe checkout URLs.
 
-Example:
+## EC2 deployment without a domain
 
-```env
-FRONTEND_BASE_URL=http://YOUR_EC2_PUBLIC_IP:3000
-NEXT_PUBLIC_API_BASE_URL=http://YOUR_EC2_PUBLIC_IP:8000
-LINKEDIN_REDIRECT_URI=http://YOUR_EC2_PUBLIC_IP:8005/linkedin/callback
+For EC2, use the separate template:
+
+```bash
+cp env_ec2 .env
+nano .env
 ```
 
-Then run:
+Replace `YOUR_ELASTIC_IP_OR_EC2_PUBLIC_IP` with your Elastic IP or current EC2 public IPv4 address. Elastic IP is recommended so the URL does not change after instance restarts.
+
+Keep this value unchanged for Docker Compose because it is an internal container URL:
+
+```env
+API_GATEWAY_URL=http://api_gateway:8080
+NEXT_PUBLIC_API_BASE_URL=
+```
+
+Then start the stack:
 
 ```bash
 docker compose up -d --build
 ```
+
