@@ -68,6 +68,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-creditflow}:${RABBITMQ_DEFAULT_PASS:-creditflow-change-me}@rabbitmq:5672/
       RABBITMQ_EXCHANGE: creditflow.events
+      USER_TENANT_SERVICE_URL: http://user_tenant_service:8002
+      ACCOUNT_SERVICE_URL: http://user_tenant_service:8002
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
@@ -385,5 +387,4 @@ volumes:
   mongo_data:
   content_uploads:
   scraper_runtime:
-
 
