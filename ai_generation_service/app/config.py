@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     internal_service_token: str = Field(default="", repr=False)
 
     usage_service_url: str = "http://localhost:8009"
-    credits_service_url: str = "http://localhost:8007"
+    credits_service_url: str = Field(default="http://localhost:8007", validation_alias=AliasChoices("AI_GENERATION_CREDITS_SERVICE_URL", "CREDITS_SERVICE_URL"))
     credit_reservation_enabled: bool = Field(default=True, validation_alias="AI_GENERATION_CREDIT_RESERVATION_ENABLED")
     credit_reservation_timeout_seconds: float = Field(default=5.0, validation_alias="AI_GENERATION_CREDIT_RESERVATION_TIMEOUT_SECONDS")
     text_generation_credit_cost: int = Field(default=100, ge=1, validation_alias="AI_GENERATION_TEXT_CREDIT_COST")
@@ -68,3 +68,4 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+

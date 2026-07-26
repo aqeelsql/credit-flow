@@ -244,6 +244,8 @@ services:
       <<: *common_env
       REDIS_URL: redis://redis:6379/0
       USAGE_SERVICE_URL: http://usage_service:8009
+      CREDITS_SERVICE_URL: http://credits_service:8007
+      AI_GENERATION_CREDITS_SERVICE_URL: http://credits_service:8007
       AI_GENERATION_QUOTA_BACKEND: usage
     depends_on:
       postgres:
@@ -389,4 +391,3 @@ volumes:
   mongo_data:
   content_uploads:
   scraper_runtime:
-
