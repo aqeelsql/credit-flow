@@ -154,6 +154,8 @@ services:
     environment:
       <<: *common_env
       BILLING_SERVICE_URL: http://billing_service:8006
+      BILLING_CREDITS_SERVICE_URL: http://credits_service:8007
+      CREDITS_SERVICE_URL: http://credits_service:8007
       BILLING_RABBITMQ_EXCHANGE: billing_events
     depends_on: *core_depends
     ports:
