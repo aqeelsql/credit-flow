@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 import hashlib
 import secrets
@@ -61,7 +61,10 @@ class AccountRepository:
                 WHERE tm.account_id = a.id AND tm.status = 'active'::member_status
             ) active_members ON true
             WHERE m.user_id = $1 AND m.status = 'active'::member_status
-            ORDER BY a.created_at ASC
+            ORDER BY
+                CASE WHEN m.role = 'Owner'::account_role THEN 1 ELSE 0 END,
+                m.updated_at DESC,
+                a.created_at ASC
             """,
             _uuid(user_id),
         )

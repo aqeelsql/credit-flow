@@ -298,7 +298,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setToken(response.access_token);
       let currentToken = response.access_token;
       let currentRole = response.role;
-      await loadAccounts(currentToken);
+      const loadedAccounts = await loadAccounts(currentToken);
+      const loginPayload = decodeJwtPayload(currentToken);
+      const preferred = preferredWorkspaceForSession(loginPayload, loadedAccounts);
+      if (preferred && preferred.id !== response.account_id) {
+        const switched = await appRequest<TokenResponse>("/api/auth/switch-account", currentToken, {
+          method: "POST",
+          body: JSON.stringify({ account_id: preferred.id })
+        });
+        currentToken = switched.access_token;
+        currentRole = switched.role;
+        setToken(currentToken);
+        await loadAccounts(currentToken);
+      }
 
       const pendingInvite = readPendingInvite();
       const loginEmail = email.trim().toLowerCase();

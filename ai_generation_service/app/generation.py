@@ -62,7 +62,9 @@ class GenerationManager:
             )
         quota_backend = self.settings.quota_backend.lower()
         try:
-            if quota_backend == "redis":
+            if quota_backend in {"credits", "credit", "disabled", "none"}:
+                pass
+            elif quota_backend == "redis":
                 await self.redis_state.reserve_daily_quota(request.account_id)
             elif quota_backend == "usage":
                 await self.usage.check(
@@ -75,7 +77,7 @@ class GenerationManager:
             else:
                 raise GenerationError(
                     "invalid_quota_backend",
-                    "AI generation quota backend must be 'redis' or 'usage'.",
+                    "AI generation quota backend must be 'credits', 'redis', or 'usage'.",
                     500,
                 )
         except Exception:
