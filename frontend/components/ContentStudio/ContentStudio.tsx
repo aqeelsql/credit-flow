@@ -206,7 +206,7 @@ export function ContentStudio() {
       return;
     }
 
-    if ((creditBalance ?? 0) < TEXT_GENERATION_CREDIT_COST || remainingTokens === 0) {
+    if ((creditBalance ?? 0) < TEXT_GENERATION_CREDIT_COST) {
       setNotice(`Not enough credits to generate this post. At least ${TEXT_GENERATION_CREDIT_COST} credits are required.`);
       return;
     }

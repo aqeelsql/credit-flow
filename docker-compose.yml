@@ -246,7 +246,7 @@ services:
       USAGE_SERVICE_URL: http://usage_service:8009
       CREDITS_SERVICE_URL: http://credits_service:8007
       AI_GENERATION_CREDITS_SERVICE_URL: http://credits_service:8007
-      AI_GENERATION_QUOTA_BACKEND: usage
+      AI_GENERATION_QUOTA_BACKEND: credits
     depends_on:
       postgres:
         condition: service_healthy
