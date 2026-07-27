@@ -1,4 +1,5 @@
-﻿import logging
+import logging
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -213,12 +214,16 @@ async def invite_member(
         event_bus,
         "member.invited",
         {
+            "event_id": f"member.invited:{uuid.uuid4()}",
             "account_id": account_id,
             "account_name": row.get("account_name"),
             "invite_id": row["invite_id"],
             "email": row["email"],
+            "recipient": row["email"],
+            "invitee_email": row["email"],
             "role": row["role"],
             "code": code,
+            "invite_url": f"{settings.frontend_base_url.rstrip('/')}/signup?invite={code}",
             "expires_at": row["expires_at"],
             "created_by_user_id": principal.user_id,
         },
