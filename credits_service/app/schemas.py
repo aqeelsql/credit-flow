@@ -64,3 +64,10 @@ class CreditAccountRequest(BaseModel):
     event_id: str = Field(min_length=1, max_length=160)
     reason: str = Field(default="adjustment", max_length=64)
     metadata: dict = Field(default_factory=dict)
+
+class MemberUsageResponse(BaseModel):
+    user_id: str
+    credits_used: int
+    generation_count: int
+    last_used_at: str | None = None
+    models: list[str] = Field(default_factory=list)
