@@ -181,6 +181,13 @@ function upsertAccount(accounts: Account[], account: Account): Account[] {
   return accounts.map((item) => (item.id === account.id ? account : item));
 }
 
+function preferredWorkspaceForSession(payload: SessionPayload | null, accountRows: Account[]): Account | null {
+  if (!payload || payload.role === "SuperAdmin") return null;
+  const current = accountRows.find((account) => account.id === payload.account_id) ?? null;
+  if (current && current.role !== "Owner") return current;
+  const memberWorkspace = accountRows.find((account) => account.role !== "Owner");
+  return memberWorkspace ?? current ?? accountFromToken(payload);
+}
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -204,32 +211,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       writeStoredAccounts(normalized);
       return normalized;
     } catch {
-      return readStoredAccounts();
+      const fallback = accountFromToken(token ? decodeJwtPayload(token) : null);
+      const fallbackAccounts = fallback ? [fallback] : [];
+      setAccounts(fallbackAccounts);
+      writeStoredAccounts(fallbackAccounts);
+      return fallbackAccounts;
     }
   }, []);
 
   useEffect(() => {
     const token = safeStorageGet(ACCESS_TOKEN_STORAGE_KEY);
-    const storedAccounts = readStoredAccounts();
-    setAccounts(storedAccounts);
     if (!token) {
+      setAccounts([]);
       setStatus("unauthenticated");
       return;
     }
     const payload = decodeJwtPayload(token);
     if (!payload || payload.exp * 1000 <= Date.now()) {
       safeStorageRemove(ACCESS_TOKEN_STORAGE_KEY);
+      safeStorageRemove(ACCOUNTS_STORAGE_KEY);
+      setAccounts([]);
       setStatus("unauthenticated");
       return;
     }
+
+    const storedForToken = readStoredAccounts().filter((account) => account.id === payload.account_id || payload.role === "SuperAdmin");
     const fallbackAccount = accountFromToken(payload);
-    if (fallbackAccount && fallbackAccount.role !== "SuperAdmin" && !storedAccounts.some((account) => account.id === fallbackAccount.id)) {
-      const next = upsertAccount(storedAccounts, fallbackAccount);
-      setAccounts(next);
-      writeStoredAccounts(next);
-    }
+    const initialAccounts = fallbackAccount && fallbackAccount.role !== "SuperAdmin" && !storedForToken.some((account) => account.id === fallbackAccount.id)
+      ? upsertAccount(storedForToken, fallbackAccount)
+      : storedForToken;
+    setAccounts(initialAccounts);
+    writeStoredAccounts(initialAccounts);
     setToken(token);
-    void loadAccounts(token);
+
+    void (async () => {
+      const loaded = await loadAccounts(token);
+      const preferred = preferredWorkspaceForSession(payload, loaded);
+      if (preferred && preferred.id !== payload.account_id) {
+        try {
+          const switched = await appRequest<TokenResponse>("/api/auth/switch-account", token, {
+            method: "POST",
+            body: JSON.stringify({ account_id: preferred.id })
+          });
+          setToken(switched.access_token);
+          await loadAccounts(switched.access_token);
+        } catch {
+          // Keep the current session if account switching is temporarily unavailable.
+        }
+      }
+    })();
   }, [loadAccounts, setToken]);
 
   const activeAccount = useMemo(() => {
