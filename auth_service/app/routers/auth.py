@@ -156,12 +156,16 @@ async def signup(
             existing = await repo.get_user_by_email(payload.email)
             if existing is not None:
                 if existing["status"] == UserStatus.ACTIVE.value:
-                    raise AuthError("email_already_registered", "An account already exists for this email. Please log in instead.", 409)
-                if existing["status"] != UserStatus.PENDING_VERIFICATION.value:
+                    user = existing
+                    if display_name and display_name != (existing.get("name") or ""):
+                        await repo.update_user_name(existing["id"], display_name)
+                        user = {**existing, "name": display_name}
+                elif existing["status"] == UserStatus.PENDING_VERIFICATION.value:
+                    await repo.update_user_name(existing["id"], display_name)
+                    await repo.set_user_password(existing["id"], password_hash)
+                    user = await repo.activate_user(existing["id"])
+                else:
                     raise AuthError("account_disabled", "This account cannot sign up again. Contact support.", 403)
-                await repo.update_user_name(existing["id"], display_name)
-                await repo.set_user_password(existing["id"], password_hash)
-                user = await repo.activate_user(existing["id"])
             else:
                 user = await repo.create_user_with_credential(payload.email, password_hash, name=display_name, active=True)
         account = await accept_invite_for_user(settings, user["id"], user["email"], invite_code, display_name)
