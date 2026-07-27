@@ -20,6 +20,7 @@ from app.schemas import (
     CreditAccountRequest,
     LedgerEntryResponse,
     MarketplaceListingResponse,
+    MemberUsageResponse,
     Principal,
 )
 
@@ -59,6 +60,16 @@ def ledger_response(row: dict[str, Any]) -> LedgerEntryResponse:
         created_at=_iso(row["created_at"]) or "",
     )
 
+
+
+def member_usage_response(row: dict[str, Any]) -> MemberUsageResponse:
+    return MemberUsageResponse(
+        user_id=str(row.get("user_id") or "unknown"),
+        credits_used=int(row.get("credits_used") or 0),
+        generation_count=int(row.get("generation_count") or 0),
+        last_used_at=_iso(row.get("last_used_at")),
+        models=[str(item) for item in (row.get("models") or []) if item],
+    )
 
 def listing_response(row: dict[str, Any]) -> MarketplaceListingResponse:
     return MarketplaceListingResponse(
@@ -192,6 +203,21 @@ async def transactions(
         rows = await repo.list_transactions(account_id, limit)
     return [ledger_response(row) for row in rows]
 
+
+
+@router.get("/member-usage", response_model=list[MemberUsageResponse])
+async def member_usage(
+    principal: Principal = Depends(current_principal),
+    db: Database = Depends(database_dep),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[MemberUsageResponse]:
+    account_id = require_account_scope(principal)
+    if principal.role not in {"Owner", "TenantAdmin"}:
+        raise CreditsError("forbidden", "Only account owners and admins can view member credit usage.", 403)
+    async with db.acquire() as conn:
+        repo = CreditsRepository(conn)
+        rows = await repo.member_usage(account_id, limit)
+    return [member_usage_response(row) for row in rows]
 
 @router.get("/marketplace/listings", response_model=list[MarketplaceListingResponse])
 async def marketplace_listings(

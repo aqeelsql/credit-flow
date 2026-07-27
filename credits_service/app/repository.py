@@ -368,6 +368,29 @@ class CreditsRepository:
             raise CreditsError("listing_purchase_failed", "Unable to complete marketplace purchase.", 500)
         return dict(sold)
 
+    async def member_usage(self, account_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        rows = await self.conn.fetch(
+            """
+            SELECT
+                COALESCE(NULLIF(metadata->>'user_id', ''), 'unknown') AS user_id,
+                COALESCE(SUM(ABS(amount)), 0)::bigint AS credits_used,
+                COUNT(*)::int AS generation_count,
+                MAX(created_at) AS last_used_at,
+                COALESCE(array_remove(array_agg(DISTINCT NULLIF(metadata->>'model', '')), NULL), ARRAY[]::text[]) AS models
+            FROM credits_ledger
+            WHERE account_id = $1
+              AND reason = $2::ledger_reason
+              AND amount < 0
+              AND COALESCE(metadata->>'kind', '') = 'ai_generation'
+            GROUP BY COALESCE(NULLIF(metadata->>'user_id', ''), 'unknown')
+            ORDER BY credits_used DESC, last_used_at DESC NULLS LAST
+            LIMIT $3
+            """,
+            account_id,
+            LedgerReason.CONSUMPTION.value,
+            limit,
+        )
+        return [dict(row) for row in rows]
     async def consume_credits(self, account_id: str, amount: int, event_id: str, metadata: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, bool]:
         processed = await self.record_processed_event(event_id, "credits.consume", metadata)
         if not processed:
