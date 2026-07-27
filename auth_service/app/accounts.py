@@ -1,4 +1,4 @@
-﻿import httpx
+import httpx
 
 from app.config import Settings
 from app.errors import AuthError
@@ -111,7 +111,12 @@ async def resolve_account_role(settings: Settings, user_id: str, requested_accou
 
     active_memberships = [membership for membership in memberships if membership.get("status") == "active"]
     if active_memberships:
-        first = active_memberships[0]
+        non_owner_memberships = [
+            membership
+            for membership in active_memberships
+            if str(membership.get("role") or "").lower() != "owner"
+        ]
+        first = non_owner_memberships[0] if non_owner_memberships else active_memberships[0]
         return str(first["account_id"]), str(first.get("role") or "Member")
     raise AuthError("account_membership_missing", "User does not belong to any active account.", 403)
 

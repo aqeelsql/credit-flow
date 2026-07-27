@@ -169,11 +169,27 @@ async def signup(
             else:
                 user = await repo.create_user_with_credential(payload.email, password_hash, name=display_name, active=True)
         account = await accept_invite_for_user(settings, user["id"], user["email"], invite_code, display_name)
+        async with db.transaction() as conn:
+            repo = AuthRepository(conn)
+            token_response, refresh_token = await _issue_session(
+                repo,
+                redis_state,
+                settings,
+                user["id"],
+                str(account.get("id")),
+                str(account.get("role") or "Member"),
+                email=user["email"],
+            )
+        _set_refresh_cookie(response, settings, refresh_token)
         return SignupResponse(
             status="active",
             user_id=user["id"],
             account_id=account.get("id"),
-            message="Invite accepted. You can now log in without email verification.",
+            message="Invite accepted. You are signed in as a workspace member.",
+            access_token=token_response.access_token,
+            expires_in=token_response.expires_in,
+            role=token_response.role,
+            jti=token_response.jti,
         )
 
     verification_token = random_token_urlsafe(48)

@@ -48,7 +48,8 @@ export default function SignupPage() {
     try {
       const response = await signup(displayName, email, password, undefined, mode === "invite" ? code : undefined);
       if (response.status === "active") {
-        setMessage(response.message || "Invite accepted. You can now log in.");
+        setMessage(response.message || "Invite accepted. Opening your workspace.");
+        router.push(response.role === "SuperAdmin" ? "/admin/usage" : response.role === "Owner" ? "/dashboard" : "/content-studio");
         return;
       }
       if (response.status === "pending_verification") {
