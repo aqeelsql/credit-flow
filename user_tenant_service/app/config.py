@@ -1,4 +1,4 @@
-﻿from functools import lru_cache
+from functools import lru_cache
 from pathlib import Path
 
 from pydantic import AliasChoices, Field
@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     invite_ttl_seconds: int = Field(default=7 * 24 * 60 * 60, validation_alias=user_tenant_env("INVITE_TTL_SECONDS"))
     default_plan: str = Field(default="Starter", validation_alias=user_tenant_env("DEFAULT_PLAN"))
     default_credits: int = Field(default=0, validation_alias=user_tenant_env("DEFAULT_CREDITS"))
+    frontend_base_url: str = Field(default="http://localhost:3000", validation_alias=AliasChoices("USER_TENANT_FRONTEND_BASE_URL", "FRONTEND_BASE_URL", "FRONTEND_URL"))
 
     rabbitmq_url: str = "amqp://guest:guest@localhost/"
     rabbitmq_exchange: str = "creditflow.events"
